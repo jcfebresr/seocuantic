@@ -10,6 +10,14 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Import utilities (will be added to GitHub)
+try:
+    from utils.source_detector import SourceDetector
+    from utils.data_normalizer import DataNormalizer
+    has_utils = True
+except:
+    has_utils = False
+
 # Custom CSS
 st.markdown("""
 <style>
@@ -31,11 +39,26 @@ st.markdown("""
         border-radius: 0.5rem;
         margin: 1rem 0;
     }
+    .info-box {
+        background-color: #3B82F622;
+        border-left: 4px solid #3B82F6;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        margin: 1rem 0;
+    }
     .metric-card {
         background-color: #1E293B;
         padding: 1.5rem;
         border-radius: 0.5rem;
         border: 1px solid #8B5CF644;
+    }
+    .source-badge {
+        display: inline-block;
+        padding: 0.5rem 1rem;
+        background-color: #8B5CF622;
+        border: 1px solid #8B5CF6;
+        border-radius: 0.5rem;
+        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -47,6 +70,12 @@ if 'tier' not in st.session_state:
     st.session_state.tier = 'free'
 if 'df_raw' not in st.session_state:
     st.session_state.df_raw = None
+if 'df_normalized' not in st.session_state:
+    st.session_state.df_normalized = None
+if 'source_detected' not in st.session_state:
+    st.session_state.source_detected = None
+if 'column_mapping' not in st.session_state:
+    st.session_state.column_mapping = {}
 
 # Translations
 TRANSLATIONS = {
@@ -68,8 +97,11 @@ TRANSLATIONS = {
         "rows_loaded": "rows loaded",
         "success_upload": "CSV loaded successfully",
         "columns_detected": "Columns detected",
-        "validation_passed": "Validation passed",
-        "tier_limit_warning": "Free tier: Processing first 100 URLs. Upload has {total} URLs."
+        "source_detected": "Source Detected",
+        "column_mapping": "Column Mapping",
+        "mapping_confirmed": "Mapping confirmed",
+        "normalized_data": "Normalized Data",
+        "unique_domains": "unique domains"
     },
     "es": {
         "app_title": "SEOcuantic Keyword Intelligence",
@@ -89,8 +121,11 @@ TRANSLATIONS = {
         "rows_loaded": "filas cargadas",
         "success_upload": "CSV cargado exitosamente",
         "columns_detected": "Columnas detectadas",
-        "validation_passed": "Validación exitosa",
-        "tier_limit_warning": "Tier gratuito: Procesando primeras 100 URLs. El archivo tiene {total} URLs."
+        "source_detected": "Fuente Detectada",
+        "column_mapping": "Mapeo de Columnas",
+        "mapping_confirmed": "Mapeo confirmado",
+        "normalized_data": "Datos Normalizados",
+        "unique_domains": "dominios únicos"
     }
 }
 
@@ -104,7 +139,6 @@ def t(key, **kwargs):
 with st.sidebar:
     st.markdown("# 🔮 SEOcuantic")
     
-    # Language selector
     lang_display = st.selectbox(
         "🌐 " + t("language"),
         options=['English', 'Español'],
@@ -114,7 +148,6 @@ with st.sidebar:
     
     st.divider()
     
-    # Tier badge
     tier_label = t("tier_free" if st.session_state.tier == 'free' else "tier_premium")
     tier_color = "#F59E0B" if st.session_state.tier == 'free' else "#10B981"
     
@@ -177,8 +210,43 @@ with tab1:
             </div>
             """, unsafe_allow_html=True)
             
+            # === MODULE 2: SOURCE DETECTION ===
+            if has_utils:
+                source, confidence = SourceDetector.detect_source(df.columns.tolist())
+                st.session_state.source_detected = source
+                
+                source_info = SourceDetector.get_source_info(source)
+                
+                st.markdown(f"""
+                <div class="info-box">
+                    <strong>{source_info['icon']} {t('source_detected')}: {source_info['name']}</strong><br>
+                    Confidence: {confidence*100:.0f}%
+                </div>
+                """, unsafe_allow_html=True)
+                
+                # Column Mapping
+                st.subheader(f"🔗 {t('column_mapping')}")
+                
+                mapping = SourceDetector.map_columns(df.columns.tolist(), source)
+                st.session_state.column_mapping = mapping
+                
+                # Show mapping table
+                mapping_df = pd.DataFrame([
+                    {"Standard Field": k.upper(), "CSV Column": v or "❌ Not found"}
+                    for k, v in mapping.items()
+                ])
+                
+                st.dataframe(mapping_df, use_container_width=True, hide_index=True)
+                
+                # Normalize button
+                if st.button("✨ Normalize Data", type="primary"):
+                    df_norm = DataNormalizer.normalize_dataframe(df, mapping)
+                    st.session_state.df_normalized = df_norm
+                    st.success(f"✅ {t('mapping_confirmed')}")
+                    st.rerun()
+            
             # Metrics
-            col1, col2, col3 = st.columns(3)
+            col1, col2, col3, col4 = st.columns(4)
             
             with col1:
                 st.markdown(f"""
@@ -204,44 +272,42 @@ with tab1:
                 </div>
                 """, unsafe_allow_html=True)
             
-            st.divider()
-            
-            # Tier limit check
-            max_urls = 100 if st.session_state.tier == 'free' else float('inf')
-            
-            if len(df) > max_urls:
+            with col4:
+                if st.session_state.df_normalized is not None and 'domain' in st.session_state.df_normalized.columns:
+                    n_domains = st.session_state.df_normalized['domain'].nunique()
+                else:
+                    n_domains = 0
+                
                 st.markdown(f"""
-                <div class="warning-box">
-                    ⚠️ {t('tier_limit_warning', total=len(df))}<br>
-                    <a href="#" style="color: #8B5CF6; text-decoration: none;">
-                        🚀 Unlock full processing
-                    </a>
+                <div class="metric-card">
+                    <h3 style="margin:0; color: #8B5CF6;">{n_domains}</h3>
+                    <p style="margin:0; color: #F1F5F988;">{t('unique_domains')}</p>
                 </div>
                 """, unsafe_allow_html=True)
-                df_preview = df.head(max_urls)
-            else:
-                df_preview = df
             
-            # Columns detected
+            st.divider()
+            
+            # Show normalized data if available
+            if st.session_state.df_normalized is not None:
+                st.subheader(f"✨ {t('normalized_data')}")
+                st.dataframe(
+                    st.session_state.df_normalized.head(100),
+                    use_container_width=True,
+                    height=400
+                )
+            else:
+                # Show original preview
+                st.subheader(t('preview_title'))
+                st.dataframe(df.head(100), use_container_width=True, height=400)
+            
+            # Column info
             with st.expander(f"📋 {t('columns_detected')} ({len(df.columns)})", expanded=False):
                 st.write(list(df.columns))
             
-            # Data preview
-            st.subheader(t('preview_title'))
-            st.dataframe(df_preview.head(100), use_container_width=True, height=400)
-            
-            # Column stats
-            with st.expander("📊 Column Statistics", expanded=False):
-                col_stats = pd.DataFrame({
-                    'Column': df.columns,
-                    'Type': [str(dtype) for dtype in df.dtypes],
-                    'Null Count': [df[col].isnull().sum() for col in df.columns],
-                    'Null %': [round(df[col].isnull().sum() / len(df) * 100, 1) for col in df.columns]
-                })
-                st.dataframe(col_stats, use_container_width=True)
-            
         except Exception as e:
             st.error(f"❌ Error loading CSV: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
     
     else:
         st.info("ℹ️ Please upload a CSV file to begin" if st.session_state.language == 'en' else "ℹ️ Por favor sube un archivo CSV para comenzar")
