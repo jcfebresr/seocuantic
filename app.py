@@ -4,12 +4,7 @@ import chardet
 import io
 from utils.source_detector import detect_source_and_map
 from utils.data_normalizer import normalize_data
-from utils.project_identifier import (
-    get_domain_stats,
-    validate_competitors,
-    mark_project_domain,
-    get_competitor_list
-)
+from utils.project_identifier import get_domain_stats
 
 # Configuración de página
 st.set_page_config(
@@ -72,12 +67,6 @@ if 'df_competitors' not in st.session_state:
     st.session_state.df_competitors = []
 if 'df_processed' not in st.session_state:
     st.session_state.df_processed = None
-if 'selected_domain' not in st.session_state:
-    st.session_state.selected_domain = None
-if 'competitor_domains' not in st.session_state:
-    st.session_state.competitor_domains = []
-if 'project_identified' not in st.session_state:
-    st.session_state.project_identified = False
 
 # Sidebar
 with st.sidebar:
@@ -134,9 +123,8 @@ st.title("🔮 SEOcuantic Keyword Intelligence")
 st.markdown("**v0.3.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.3.0** - Análisis SEO con IA")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2 = st.tabs([
     "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
-    "🎯 Identify Project" if lang == "en" else "🎯 Identificar Proyecto",
     "📁 Categorization" if lang == "en" else "📁 Categorización"
 ])
 
@@ -311,6 +299,7 @@ with tab1:
             st.session_state.df_processed = df_combined
             
             st.success(f"✅ Data processed: {len(df_combined)} total rows" if lang == "en" else f"✅ Datos procesados: {len(df_combined)} filas totales")
+            st.balloons()
             
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -322,52 +311,33 @@ with tab1:
                 st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", df_combined['domain'].nunique())
             with col4:
                 st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df_combined['traffic'].sum():,.0f}")
-
-# TAB 2: Identify Project
-with tab2:
-    st.header("🎯 Identify Your Project" if lang == "en" else "🎯 Identifica Tu Proyecto")
     
-    if st.session_state.df_processed is None:
-        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
-    else:
+    # Mostrar tabla de estadísticas por dominio si hay datos procesados
+    if st.session_state.df_processed is not None:
+        st.markdown("---")
+        st.subheader("📊 Domain Statistics" if lang == "en" else "📊 Estadísticas por Dominio")
+        
         df = st.session_state.df_processed
         
-        # Verificar que existe la columna domain
-        if 'domain' not in df.columns:
-            st.error("❌ Domain column missing" if lang == "en" else "❌ Falta columna de dominio")
-        else:
-            # Extraer estadísticas por dominio
+        if 'domain' in df.columns:
             domain_stats = get_domain_stats(df)
             
-            st.subheader("📊 Detected Domains" if lang == "en" else "📊 Dominios Detectados")
-            st.markdown(f"**{len(domain_stats)}** domains found" if lang == "en" else f"**{len(domain_stats)}** dominios encontrados")
+            # Separar proyecto vs competidores si existe is_client
+            if 'is_client' in df.columns:
+                # Identificar dominio del proyecto
+                project_domains = df[df['is_client'] == True]['domain'].unique()
+                
+                if len(project_domains) > 0:
+                    st.markdown(f"**🏠 Your Project:** {', '.join(project_domains)}")
+                
+                # Marcar en la tabla
+                domain_stats['type'] = domain_stats['domain'].apply(
+                    lambda x: '🏠 Project' if x in project_domains else '🎯 Competitor'
+                )
+                
+                # Reordenar columnas
+                domain_stats = domain_stats[['type', 'domain', 'keywords', 'traffic', 'urls']]
             
-            # Validar límites de tier
-            tier = st.session_state.get('tier', 'free')
-            is_valid, msg, max_comp = validate_competitors(len(domain_stats), tier)
-            
-            if not is_valid:
-                st.markdown(f"""
-                <div class="warning-box">
-                    <strong>⚠️ {msg}</strong><br>
-                    {"Select which competitors to keep." if lang == "en" else "Selecciona qué competidores mantener."}
-                </div>
-                """, unsafe_allow_html=True)
-            
-            # Tabla de selección
-            st.markdown("---")
-            st.markdown("**Select YOUR domain** (rest = competitors)" if lang == "en" else "**Selecciona TU dominio** (resto = competidores)")
-            
-            # Radio buttons para seleccionar dominio propio
-            selected_domain = st.radio(
-                "Your project domain:" if lang == "en" else "Tu dominio:",
-                options=domain_stats['domain'].tolist(),
-                format_func=lambda x: f"🌐 {x} — {domain_stats[domain_stats['domain']==x]['keywords'].values[0]:,.0f} kws, {domain_stats[domain_stats['domain']==x]['traffic'].values[0]:,.0f} traffic",
-                key='domain_selector',
-                label_visibility='collapsed'
-            )
-            
-            # Mostrar tabla completa con stats
             st.dataframe(
                 domain_stats.style.format({
                     'traffic': '{:,.0f}',
@@ -377,61 +347,12 @@ with tab2:
                 use_container_width=True,
                 hide_index=True
             )
-            
-            # Botón de confirmación
-            st.markdown("---")
-            col1, col2 = st.columns([3, 1])
-            
-            with col2:
-                if st.button("✅ Confirm" if lang == "en" else "✅ Confirmar", type="primary", use_container_width=True):
-                    
-                    # Validar límite de competidores
-                    competitors = get_competitor_list(df, selected_domain)
-                    
-                    if len(competitors) > max_comp:
-                        st.error(f"❌ Limit: {max_comp} competitors. You have {len(competitors)}." if lang == "en" else f"❌ Límite: {max_comp} competidores. Tienes {len(competitors)}.")
-                    else:
-                        # Marcar dominio del cliente
-                        df_marked = mark_project_domain(df, selected_domain)
-                        
-                        # Actualizar session state
-                        st.session_state.df_processed = df_marked
-                        st.session_state.selected_domain = selected_domain
-                        st.session_state.competitor_domains = competitors
-                        st.session_state.project_identified = True
-                        
-                        st.success(f"✅ Project identified: **{selected_domain}**" if lang == "en" else f"✅ Proyecto identificado: **{selected_domain}**")
-                        st.info(f"🎯 {len(competitors)} competitors marked" if lang == "en" else f"🎯 {len(competitors)} competidores marcados")
-                        st.balloons()
-            
-            # Mostrar estado si ya está identificado
-            if st.session_state.get('project_identified', False) and 'is_client' in df.columns:
-                st.markdown("---")
-                st.markdown("### ✅ Project Status" if lang == "en" else "### ✅ Estado del Proyecto")
-                
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Your Domain" if lang == "en" else "Tu Dominio", st.session_state.selected_domain)
-                with col2:
-                    client_kws = len(df[df['is_client'] == True])
-                    st.metric("Your Keywords" if lang == "en" else "Tus Keywords", f"{client_kws:,}")
-                with col3:
-                    st.metric("Competitors" if lang == "en" else "Competidores", len(st.session_state.competitor_domains))
-                
-                # Listado de competidores
-                if len(st.session_state.competitor_domains) > 0:
-                    with st.expander("📋 View Competitors" if lang == "en" else "📋 Ver Competidores"):
-                        for comp in st.session_state.competitor_domains:
-                            comp_stats = domain_stats[domain_stats['domain'] == comp]
-                            if len(comp_stats) > 0:
-                                comp_stats = comp_stats.iloc[0]
-                                st.markdown(f"- **{comp}** — {comp_stats['keywords']:,.0f} kws, {comp_stats['traffic']:,.0f} traffic")
 
-# TAB 3: Categorization (placeholder)
-with tab3:
+# TAB 2: Categorization (placeholder)
+with tab2:
     st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
     
-    if not st.session_state.get('project_identified', False):
-        st.warning("⚠️ Identify your project first (Tab 2)" if lang == "en" else "⚠️ Primero identifica tu proyecto (Tab 2)")
+    if st.session_state.df_processed is None:
+        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
     else:
         st.info("🚧 Coming soon: URL categorization" if lang == "en" else "🚧 Próximamente: categorización de URLs")
