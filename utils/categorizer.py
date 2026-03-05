@@ -1,209 +1,96 @@
-"""
-URL Categorization
-Free: Pattern matching
-Premium: AI with Claude API
-"""
-
 import pandas as pd
 import re
-from typing import Dict, List, Optional
 
 class URLCategorizer:
-    """Categorize URLs based on patterns or AI"""
-    
-    # Default categories and their URL patterns
+    # 1. Cargamos los patrones semilla directamente (basados en tu JSON)
     DEFAULT_PATTERNS = {
-        'Blog': ['/blog', '/post', '/article', '/news', '/insights'],
-        'Products': ['/product', '/shop', '/store', '/buy', '/cart'],
-        'Services': ['/service', '/solution', '/offer'],
-        'Home': ['/', '/home', '/index'],
-        'About': ['/about', '/company', '/team', '/contact'],
-        'Docs': ['/doc', '/guide', '/help', '/support', '/faq'],
-        'Other': []
+        "Blog": ["/blog/", "/articles/", "/news/", "/post/", "/entry/", "how to", "guide", "tutorial", "que es", "como "],
+        "Products": ["/product/", "/p/", "/item/", "/shop/", "/buy/", "review", "model", "caracteristicas"],
+        "Services": ["/services/", "/service/", "/solutions/", "agencia", "agency"],
+        "Collections": ["/category/", "/collection/", "/c/", "/catalog/"],
+        "Docs": ["/docs/", "/documentation/", "/help/", "/support/"],
+        "Tools": ["/tools/", "herramienta", "calculator"],
+        "Home": ["/home", "/index", "inicio"]
     }
-    
+
     @staticmethod
-    def categorize_by_patterns(
-        df: pd.DataFrame,
-        custom_patterns: Dict[str, List[str]] = None
-    ) -> pd.DataFrame:
-        """
-        Categorize URLs using pattern matching (Free tier)
+    def validate_category_name(category_name):
+        if not category_name or len(category_name.strip()) == 0:
+            return False, "Name cannot be empty"
+        if len(category_name.split()) > 1:
+            return False, "Category must be a SINGLE WORD"
+        return True, ""
+
+    @staticmethod
+    def categorize_by_patterns(df, custom_patterns=None):
+        """Categorización ultra rápida basada en patrones Regex/Contains"""
+        # Hacemos una copia para no alterar el original en memoria
+        df_cat = df.copy()
         
-        Args:
-            df: DataFrame with 'url' column
-            custom_patterns: User-defined patterns {category: [patterns]}
+        # 1. Por defecto, todas nacen en 'Other'
+        df_cat['category'] = 'Other'
         
-        Returns:
-            DataFrame with 'category' column added
-        """
-        df = df.copy()
+        # Pre-procesamos URLs y Keywords en minúsculas para que el match no falle por mayúsculas
+        urls_lower = df_cat['url'].astype(str).str.lower()
         
-        # Merge default + custom patterns
-        patterns = URLCategorizer.DEFAULT_PATTERNS.copy()
+        # Si existe la columna keyword, la usamos, si no, creamos una serie vacía
+        if 'keyword' in df_cat.columns:
+            kw_lower = df_cat['keyword'].astype(str).str.lower()
+        else:
+            kw_lower = pd.Series("", index=df_cat.index)
+            
+        # 2. Unimos patrones por defecto con los que agregues tú desde la interfaz
+        patterns_to_check = URLCategorizer.DEFAULT_PATTERNS.copy()
         if custom_patterns:
-            patterns.update(custom_patterns)
-        
-        def match_category(url: str) -> str:
-            if pd.isna(url) or not url:
-                return 'Other'
+            for cat, pats in custom_patterns.items():
+                if cat in patterns_to_check:
+                    patterns_to_check[cat].extend(pats)
+                else:
+                    patterns_to_check[cat] = pats
+
+        # 3. Lógica Especial para el "Home" (Raíz del dominio)
+        # Identifica URLs que terminan en .com/, .es/ o son exactamente "/"
+        home_mask = urls_lower.str.match(r'^https?://[^/]+/?$')
+        df_cat.loc[home_mask & (df_cat['category'] == 'Other'), 'category'] = 'Home'
+
+        # 4. Iterar sobre las categorías y buscar si CONTIENEN el patrón
+        for category, patterns in patterns_to_check.items():
+            if not patterns: 
+                continue
+                
+            # Creamos el patrón regex combinando todos los items de la lista con el operador OR '|'
+            # Ejemplo: "/blog/|how to|guide"
+            valid_patterns = [p.lower().strip() for p in patterns if p.strip()]
+            if not valid_patterns:
+                continue
+                
+            # Escapamos los caracteres especiales (como los slashes /) para que no rompan el regex
+            escaped_patterns = [re.escape(p) for p in valid_patterns]
+            regex_pattern = '|'.join(escaped_patterns)
             
-            url_lower = url.lower()
+            # Buscamos en URL
+            url_match = urls_lower.str.contains(regex_pattern, regex=True, na=False)
+            # Buscamos en Keyword
+            kw_match = kw_lower.str.contains(regex_pattern, regex=True, na=False)
             
-            # Try each category's patterns
-            for category, pattern_list in patterns.items():
-                if category == 'Other':
-                    continue
-                    
-                for pattern in pattern_list:
-                    if pattern in url_lower:
-                        return category
+            # Máscara total: si coincide en la URL o en la Keyword
+            total_match = url_match | kw_match
             
-            return 'Other'
-        
-        df['category'] = df['url'].apply(match_category)
-        
-        return df
+            # Asignamos la categoría SOLO a los que siguen siendo 'Other' (respeta la prioridad en cascada)
+            df_cat.loc[total_match & (df_cat['category'] == 'Other'), 'category'] = category
+
+        return df_cat
     
     @staticmethod
-    def categorize_with_ai(
-        df: pd.DataFrame,
-        api_key: str,
-        categories: List[str],
-        batch_size: int = 50
-    ) -> pd.DataFrame:
-        """
-        Categorize URLs using Claude AI (Premium tier)
-        
-        Args:
-            df: DataFrame with 'keyword' and 'url' columns
-            api_key: Anthropic API key
-            categories: List of available categories
-            batch_size: URLs to process per API call
-        
-        Returns:
-            DataFrame with 'category' and 'ai_confidence' columns
-        """
-        try:
-            import anthropic
-        except ImportError:
-            raise ImportError("Install anthropic: pip install anthropic")
-        
-        df = df.copy()
-        client = anthropic.Anthropic(api_key=api_key)
-        
-        # Process in batches
-        total_rows = len(df)
-        df['category'] = 'Other'
-        df['ai_confidence'] = 0.0
-        
-        for i in range(0, total_rows, batch_size):
-            batch = df.iloc[i:i+batch_size]
-            
-            # Prepare batch data
-            batch_data = []
-            for idx, row in batch.iterrows():
-                batch_data.append({
-                    'index': idx,
-                    'keyword': row.get('keyword', ''),
-                    'url': row.get('url', '')
-                })
-            
-            # Create prompt
-            prompt = f"""Categorize these URLs into ONE of these categories: {', '.join(categories)}
-
-Rules:
-- Return ONLY the category name (one word)
-- Analyze both the URL path and keyword intent
-- Be consistent
-
-URLs to categorize:
-{chr(10).join([f"{i+1}. Keyword: '{d['keyword']}' | URL: {d['url']}" for i, d in enumerate(batch_data)])}
-
-Return format (one per line):
-1. CategoryName
-2. CategoryName
-...
-"""
-            
-            try:
-                response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=1000,
-                    messages=[{"role": "user", "content": prompt}]
-                )
-                
-                # Parse response
-                result_text = response.content[0].text.strip()
-                lines = [line.strip() for line in result_text.split('\n') if line.strip()]
-                
-                # Extract categories
-                for j, line in enumerate(lines):
-                    if j >= len(batch_data):
-                        break
-                    
-                    # Remove numbering (1., 2., etc)
-                    category = re.sub(r'^\d+\.\s*', '', line).strip()
-                    
-                    # Validate category
-                    if category not in categories:
-                        category = 'Other'
-                    
-                    idx = batch_data[j]['index']
-                    df.at[idx, 'category'] = category
-                    df.at[idx, 'ai_confidence'] = 0.9  # High confidence for AI
-            
-            except Exception as e:
-                print(f"AI categorization error for batch {i}: {e}")
-                # Keep default 'Other' for failed batch
-        
-        return df
-    
-    @staticmethod
-    def get_category_stats(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Get statistics per category
-        
-        Returns:
-            DataFrame with: category, keywords, traffic, urls
-        """
+    def get_category_stats(df):
         if 'category' not in df.columns:
             return pd.DataFrame()
+            
+        stats = df.groupby('category').agg(
+            keywords=('keyword', 'count'),
+            traffic=('traffic', 'sum'),
+            urls=('url', 'nunique')
+        ).reset_index()
         
-        stats = df.groupby('category').agg({
-            'keyword': 'count',
-            'traffic': 'sum',
-            'url': 'nunique'
-        }).reset_index()
-        
-        stats.columns = ['category', 'keywords', 'traffic', 'urls']
-        stats = stats.sort_values('traffic', ascending=False)
-        
-        return stats
-    
-    @staticmethod
-    def validate_category_name(name: str) -> tuple[bool, str]:
-        """
-        Validate category name (must be 1 word only)
-        
-        Returns:
-            (is_valid, error_message)
-        """
-        if not name or not name.strip():
-            return False, "Category name cannot be empty"
-        
-        name = name.strip()
-        
-        # Check single word
-        if ' ' in name or '-' in name or '_' in name:
-            return False, "Category must be ONE word only (no spaces, hyphens, underscores)"
-        
-        # Check alphanumeric
-        if not name.isalnum():
-            return False, "Category must contain only letters and numbers"
-        
-        # Check length
-        if len(name) > 20:
-            return False, "Category name too long (max 20 characters)"
-        
-        return True, ""
+        # Ordenar por tráfico descendente
+        return stats.sort_values('traffic', ascending=False)
