@@ -10,7 +10,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Import utilities (will be added to GitHub)
+# Import utilities
 try:
     from utils.source_detector import SourceDetector
     from utils.data_normalizer import DataNormalizer
@@ -39,26 +39,11 @@ st.markdown("""
         border-radius: 0.5rem;
         margin: 1rem 0;
     }
-    .info-box {
-        background-color: #3B82F622;
-        border-left: 4px solid #3B82F6;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
     .metric-card {
         background-color: #1E293B;
         padding: 1.5rem;
         border-radius: 0.5rem;
         border: 1px solid #8B5CF644;
-    }
-    .source-badge {
-        display: inline-block;
-        padding: 0.5rem 1rem;
-        background-color: #8B5CF622;
-        border: 1px solid #8B5CF6;
-        border-radius: 0.5rem;
-        font-weight: bold;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -68,14 +53,10 @@ if 'language' not in st.session_state:
     st.session_state.language = 'en'
 if 'tier' not in st.session_state:
     st.session_state.tier = 'free'
-if 'df_raw' not in st.session_state:
-    st.session_state.df_raw = None
-if 'df_normalized' not in st.session_state:
-    st.session_state.df_normalized = None
+if 'df_processed' not in st.session_state:
+    st.session_state.df_processed = None
 if 'source_detected' not in st.session_state:
     st.session_state.source_detected = None
-if 'column_mapping' not in st.session_state:
-    st.session_state.column_mapping = {}
 
 # Translations
 TRANSLATIONS = {
@@ -95,12 +76,8 @@ TRANSLATIONS = {
         "upload_help": "Upload SEranking, Ahrefs, Semrush, GSC or custom CSV",
         "preview_title": "Data Preview",
         "rows_loaded": "rows loaded",
-        "success_upload": "CSV loaded successfully",
-        "columns_detected": "Columns detected",
-        "source_detected": "Source Detected",
-        "column_mapping": "Column Mapping",
-        "mapping_confirmed": "Mapping confirmed",
-        "normalized_data": "Normalized Data",
+        "success_upload": "CSV processed successfully",
+        "source_detected": "Detected",
         "unique_domains": "unique domains"
     },
     "es": {
@@ -119,12 +96,8 @@ TRANSLATIONS = {
         "upload_help": "Sube CSV de SEranking, Ahrefs, Semrush, GSC o personalizado",
         "preview_title": "Vista Previa de Datos",
         "rows_loaded": "filas cargadas",
-        "success_upload": "CSV cargado exitosamente",
-        "columns_detected": "Columnas detectadas",
-        "source_detected": "Fuente Detectada",
-        "column_mapping": "Mapeo de Columnas",
-        "mapping_confirmed": "Mapeo confirmado",
-        "normalized_data": "Datos Normalizados",
+        "success_upload": "CSV procesado exitosamente",
+        "source_detected": "Detectado",
         "unique_domains": "dominios únicos"
     }
 }
@@ -197,53 +170,35 @@ with tab1:
             uploaded_file.seek(0)
             
             # Read CSV
-            df = pd.read_csv(uploaded_file, encoding=encoding)
-            df.columns = df.columns.str.strip()
+            df_raw = pd.read_csv(uploaded_file, encoding=encoding)
+            df_raw.columns = df_raw.columns.str.strip()
             
-            st.session_state.df_raw = df
+            # === AUTO PROCESSING (SILENT) ===
+            if has_utils:
+                # Detect source
+                source, confidence = SourceDetector.detect_source(df_raw.columns.tolist())
+                st.session_state.source_detected = source
+                source_info = SourceDetector.get_source_info(source)
+                
+                # Auto-map columns
+                mapping = SourceDetector.map_columns(df_raw.columns.tolist(), source)
+                
+                # Auto-normalize
+                df_processed = DataNormalizer.normalize_dataframe(df_raw, mapping)
+                st.session_state.df_processed = df_processed
+            else:
+                # Fallback if utils not available
+                df_processed = df_raw
+                st.session_state.df_processed = df_processed
+                source_info = {"name": "Unknown", "icon": "❓"}
             
-            # Success message
+            # Success message with source badge
             st.markdown(f"""
             <div class="success-box">
                 ✅ <strong>{t('success_upload')}</strong><br>
-                {len(df):,} {t('rows_loaded')}
+                {len(df_processed):,} {t('rows_loaded')} • {source_info['icon']} {t('source_detected')}: {source_info['name']}
             </div>
             """, unsafe_allow_html=True)
-            
-            # === MODULE 2: SOURCE DETECTION ===
-            if has_utils:
-                source, confidence = SourceDetector.detect_source(df.columns.tolist())
-                st.session_state.source_detected = source
-                
-                source_info = SourceDetector.get_source_info(source)
-                
-                st.markdown(f"""
-                <div class="info-box">
-                    <strong>{source_info['icon']} {t('source_detected')}: {source_info['name']}</strong><br>
-                    Confidence: {confidence*100:.0f}%
-                </div>
-                """, unsafe_allow_html=True)
-                
-                # Column Mapping
-                st.subheader(f"🔗 {t('column_mapping')}")
-                
-                mapping = SourceDetector.map_columns(df.columns.tolist(), source)
-                st.session_state.column_mapping = mapping
-                
-                # Show mapping table
-                mapping_df = pd.DataFrame([
-                    {"Standard Field": k.upper(), "CSV Column": v or "❌ Not found"}
-                    for k, v in mapping.items()
-                ])
-                
-                st.dataframe(mapping_df, use_container_width=True, hide_index=True)
-                
-                # Normalize button
-                if st.button("✨ Normalize Data", type="primary"):
-                    df_norm = DataNormalizer.normalize_dataframe(df, mapping)
-                    st.session_state.df_normalized = df_norm
-                    st.success(f"✅ {t('mapping_confirmed')}")
-                    st.rerun()
             
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -251,58 +206,57 @@ with tab1:
             with col1:
                 st.markdown(f"""
                 <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{len(df):,}</h3>
+                    <h3 style="margin:0; color: #8B5CF6;">{len(df_processed):,}</h3>
                     <p style="margin:0; color: #F1F5F988;">Total Rows</p>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col2:
+                n_keywords = df_processed['keyword'].nunique() if 'keyword' in df_processed.columns else 0
                 st.markdown(f"""
                 <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{len(df.columns)}</h3>
-                    <p style="margin:0; color: #F1F5F988;">Columns</p>
+                    <h3 style="margin:0; color: #8B5CF6;">{n_keywords:,}</h3>
+                    <p style="margin:0; color: #F1F5F988;">Unique Keywords</p>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col3:
+                n_domains = df_processed['domain'].nunique() if 'domain' in df_processed.columns else 0
                 st.markdown(f"""
                 <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{encoding.upper()}</h3>
-                    <p style="margin:0; color: #F1F5F988;">Encoding</p>
+                    <h3 style="margin:0; color: #8B5CF6;">{n_domains}</h3>
+                    <p style="margin:0; color: #F1F5F988;">{t('unique_domains').title()}</p>
                 </div>
                 """, unsafe_allow_html=True)
             
             with col4:
-                if st.session_state.df_normalized is not None and 'domain' in st.session_state.df_normalized.columns:
-                    n_domains = st.session_state.df_normalized['domain'].nunique()
-                else:
-                    n_domains = 0
-                
+                total_traffic = int(df_processed['traffic'].sum()) if 'traffic' in df_processed.columns else 0
                 st.markdown(f"""
                 <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{n_domains}</h3>
-                    <p style="margin:0; color: #F1F5F988;">{t('unique_domains')}</p>
+                    <h3 style="margin:0; color: #8B5CF6;">{total_traffic:,}</h3>
+                    <p style="margin:0; color: #F1F5F988;">Total Traffic</p>
                 </div>
                 """, unsafe_allow_html=True)
             
             st.divider()
             
-            # Show normalized data if available
-            if st.session_state.df_normalized is not None:
-                st.subheader(f"✨ {t('normalized_data')}")
-                st.dataframe(
-                    st.session_state.df_normalized.head(100),
-                    use_container_width=True,
-                    height=400
-                )
-            else:
-                # Show original preview
-                st.subheader(t('preview_title'))
-                st.dataframe(df.head(100), use_container_width=True, height=400)
+            # Data preview
+            st.subheader(t('preview_title'))
+            st.dataframe(
+                df_processed.head(100),
+                use_container_width=True,
+                height=400
+            )
             
-            # Column info
-            with st.expander(f"📋 {t('columns_detected')} ({len(df.columns)})", expanded=False):
-                st.write(list(df.columns))
+            # Column stats
+            with st.expander("📊 Column Statistics", expanded=False):
+                col_stats = pd.DataFrame({
+                    'Column': df_processed.columns,
+                    'Type': [str(dtype) for dtype in df_processed.dtypes],
+                    'Null Count': [df_processed[col].isnull().sum() for col in df_processed.columns],
+                    'Null %': [round(df_processed[col].isnull().sum() / len(df_processed) * 100, 1) for col in df_processed.columns]
+                })
+                st.dataframe(col_stats, use_container_width=True)
             
         except Exception as e:
             st.error(f"❌ Error loading CSV: {str(e)}")
@@ -316,17 +270,21 @@ with tab1:
         st.markdown("---")
         st.markdown("**Example CSV format:**" if st.session_state.language == 'en' else "**Formato CSV de ejemplo:**")
         example_df = pd.DataFrame({
-            'keyword': ['seo tools', 'keyword research', 'backlink checker'],
-            'url': ['example.com/tools', 'example.com/blog/research', 'example.com/backlinks'],
-            'volume': [1000, 800, 500],
-            'traffic': [150, 120, 80],
-            'position': [3, 5, 8]
+            'Keyword': ['seo tools', 'keyword research', 'backlink checker'],
+            'URL': ['example.com/tools', 'example.com/blog/research', 'example.com/backlinks'],
+            'Search vol.': [1000, 800, 500],
+            'Traffic': [150, 120, 80],
+            'Position': [3, 5, 8]
         })
         st.dataframe(example_df, use_container_width=True)
 
 # TAB 2-5: Placeholders
 with tab2:
-    st.info("🚧 Module 2: Project identification - Coming soon" if st.session_state.language == 'en' else "🚧 Módulo 2: Identificación de proyecto - Próximamente")
+    if st.session_state.df_processed is not None:
+        st.success("✅ Ready for project identification")
+        st.info("🚧 Coming in Module 3")
+    else:
+        st.info("⬅️ Upload CSV first")
 
 with tab3:
     st.info("🚧 Module 3: Categorization - Coming soon" if st.session_state.language == 'en' else "🚧 Módulo 3: Categorización - Próximamente")
