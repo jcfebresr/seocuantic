@@ -67,6 +67,12 @@ if 'df_competitors' not in st.session_state:
     st.session_state.df_competitors = []
 if 'df_processed' not in st.session_state:
     st.session_state.df_processed = None
+if 'categories' not in st.session_state:
+    st.session_state.categories = ['Blog', 'Products', 'Services', 'Home', 'About', 'Docs', 'Other']
+if 'custom_patterns' not in st.session_state:
+    st.session_state.custom_patterns = {}
+if 'df_categorized' not in st.session_state:
+    st.session_state.df_categorized = None
 
 # Sidebar
 with st.sidebar:
@@ -120,7 +126,7 @@ with st.sidebar:
 lang = st.session_state.language
 
 st.title("🔮 SEOcuantic Keyword Intelligence")
-st.markdown("**v0.3.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.3.0** - Análisis SEO con IA")
+st.markdown("**v0.4.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.4.0** - Análisis SEO con IA")
 
 # Tabs
 tab1, tab2 = st.tabs([
@@ -348,11 +354,178 @@ with tab1:
                 hide_index=True
             )
 
-# TAB 2: Categorization (placeholder)
+# TAB 2: Categorization
 with tab2:
     st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
     
     if st.session_state.df_processed is None:
         st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
     else:
-        st.info("🚧 Coming soon: URL categorization" if lang == "en" else "🚧 Próximamente: categorización de URLs")
+        from utils.categorizer import URLCategorizer
+        
+        df = st.session_state.df_processed
+        tier = st.session_state.tier
+        
+        # Mostrar categorías actuales
+        st.subheader("📂 Available Categories" if lang == "en" else "📂 Categorías Disponibles")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.markdown(", ".join([f"`{cat}`" for cat in st.session_state.categories]))
+        
+        with col2:
+            with st.popover("➕ Add Category" if lang == "en" else "➕ Añadir Categoría"):
+                new_cat = st.text_input(
+                    "Category name (1 word):" if lang == "en" else "Nombre categoría (1 palabra):",
+                    max_chars=20,
+                    key='new_category_input'
+                )
+                
+                if st.button("Add" if lang == "en" else "Añadir", key='add_cat_btn'):
+                    is_valid, error_msg = URLCategorizer.validate_category_name(new_cat)
+                    
+                    if not is_valid:
+                        st.error(f"❌ {error_msg}")
+                    elif new_cat.capitalize() in st.session_state.categories:
+                        st.error("❌ Category already exists" if lang == "en" else "❌ Categoría ya existe")
+                    else:
+                        st.session_state.categories.append(new_cat.capitalize())
+                        st.session_state.custom_patterns[new_cat.capitalize()] = []
+                        st.success(f"✅ Added: {new_cat.capitalize()}")
+                        st.rerun()
+        
+        st.markdown("---")
+        
+        # FREE TIER: Pattern-based categorization
+        if tier == 'free':
+            st.subheader("🆓 Pattern-Based Categorization" if lang == "en" else "🆓 Categorización por Patrones")
+            
+            st.info("💡 URLs are categorized by matching path patterns (e.g., /blog → Blog)" if lang == "en" else "💡 Las URLs se categorizan por patrones en la ruta (ej: /blog → Blog)")
+            
+            # Show/edit patterns
+            with st.expander("⚙️ Edit Patterns" if lang == "en" else "⚙️ Editar Patrones"):
+                for category in st.session_state.categories:
+                    default_patterns = URLCategorizer.DEFAULT_PATTERNS.get(category, [])
+                    custom = st.session_state.custom_patterns.get(category, [])
+                    
+                    all_patterns = default_patterns + custom
+                    
+                    patterns_text = st.text_input(
+                        f"{category} patterns (comma-separated):",
+                        value=", ".join(all_patterns),
+                        key=f'pattern_{category}'
+                    )
+                    
+                    # Update custom patterns
+                    new_patterns = [p.strip() for p in patterns_text.split(',') if p.strip()]
+                    st.session_state.custom_patterns[category] = [p for p in new_patterns if p not in default_patterns]
+            
+            # Categorize button
+            if st.button("🚀 Categorize URLs" if lang == "en" else "🚀 Categorizar URLs", type="primary", use_container_width=True):
+                with st.spinner("Categorizing..." if lang == "en" else "Categorizando..."):
+                    df_categorized = URLCategorizer.categorize_by_patterns(
+                        df,
+                        custom_patterns=st.session_state.custom_patterns
+                    )
+                    
+                    st.session_state.df_categorized = df_categorized
+                    st.session_state.df_processed = df_categorized  # Update main df
+                    
+                    st.success(f"✅ Categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ {len(df_categorized)} URLs categorizadas")
+                    st.balloons()
+        
+        # PREMIUM TIER: AI categorization
+        else:
+            st.subheader("⭐ AI-Powered Categorization" if lang == "en" else "⭐ Categorización con IA")
+            
+            st.info("🤖 Claude AI analyzes keywords + URLs for semantic categorization" if lang == "en" else "🤖 Claude IA analiza keywords + URLs para categorización semántica")
+            
+            # API Key input
+            api_key = st.text_input(
+                "Anthropic API Key:" if lang == "en" else "Clave API de Anthropic:",
+                type="password",
+                help="Get your API key at https://console.anthropic.com" if lang == "en" else "Obtén tu clave API en https://console.anthropic.com"
+            )
+            
+            # Categorization method selector
+            method = st.radio(
+                "Method:" if lang == "en" else "Método:",
+                options=['patterns', 'ai'],
+                format_func=lambda x: "🔍 Patterns (Free)" if x == 'patterns' else "🤖 AI (Premium)",
+                horizontal=True
+            )
+            
+            if method == 'ai' and not api_key:
+                st.warning("⚠️ Enter API key to use AI categorization" if lang == "en" else "⚠️ Ingresa tu API key para usar categorización IA")
+            
+            # Categorize button
+            if st.button("🚀 Categorize URLs" if lang == "en" else "🚀 Categorizar URLs", type="primary", use_container_width=True):
+                
+                if method == 'patterns':
+                    with st.spinner("Categorizing with patterns..." if lang == "en" else "Categorizando con patrones..."):
+                        df_categorized = URLCategorizer.categorize_by_patterns(
+                            df,
+                            custom_patterns=st.session_state.custom_patterns
+                        )
+                        
+                        st.session_state.df_categorized = df_categorized
+                        st.session_state.df_processed = df_categorized
+                        
+                        st.success(f"✅ Categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ {len(df_categorized)} URLs categorizadas")
+                
+                elif method == 'ai' and api_key:
+                    with st.spinner("Categorizing with AI... This may take a few minutes" if lang == "en" else "Categorizando con IA... Esto puede tomar unos minutos"):
+                        try:
+                            df_categorized = URLCategorizer.categorize_with_ai(
+                                df,
+                                api_key=api_key,
+                                categories=st.session_state.categories,
+                                batch_size=50
+                            )
+                            
+                            st.session_state.df_categorized = df_categorized
+                            st.session_state.df_processed = df_categorized
+                            
+                            st.success(f"✅ AI categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ IA categorizó {len(df_categorized)} URLs")
+                            st.balloons()
+                        
+                        except Exception as e:
+                            st.error(f"❌ AI Error: {str(e)}")
+        
+        # Show category statistics if categorized
+        if st.session_state.df_categorized is not None:
+            st.markdown("---")
+            st.subheader("📊 Category Statistics" if lang == "en" else "📊 Estadísticas por Categoría")
+            
+            category_stats = URLCategorizer.get_category_stats(st.session_state.df_categorized)
+            
+            # Metrics
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Categories" if lang == "en" else "Categorías Totales", len(category_stats))
+            with col2:
+                top_cat = category_stats.iloc[0]['category'] if len(category_stats) > 0 else 'N/A'
+                st.metric("Top Category" if lang == "en" else "Categoría Principal", top_cat)
+            with col3:
+                uncategorized = len(st.session_state.df_categorized[st.session_state.df_categorized['category'] == 'Other'])
+                st.metric("Uncategorized" if lang == "en" else "Sin Categorizar", uncategorized)
+            
+            # Table
+            st.dataframe(
+                category_stats.style.format({
+                    'traffic': '{:,.0f}',
+                    'keywords': '{:,.0f}',
+                    'urls': '{:,.0f}'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+            
+            # Preview categorized data
+            with st.expander("📋 Preview Categorized Data" if lang == "en" else "📋 Vista Previa de Datos Categorizados"):
+                st.dataframe(
+                    st.session_state.df_categorized[['category', 'keyword', 'url', 'traffic']].head(100),
+                    use_container_width=True,
+                    hide_index=True
+                )
