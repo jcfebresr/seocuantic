@@ -78,7 +78,8 @@ TRANSLATIONS = {
         "rows_loaded": "rows loaded",
         "success_upload": "CSV processed successfully",
         "source_detected": "Detected",
-        "unique_domains": "unique domains"
+        "unique_domains": "unique domains",
+        "rows_skipped": "rows skipped (malformed)"
     },
     "es": {
         "app_title": "SEOcuantic Keyword Intelligence",
@@ -98,7 +99,8 @@ TRANSLATIONS = {
         "rows_loaded": "filas cargadas",
         "success_upload": "CSV procesado exitosamente",
         "source_detected": "Detectado",
-        "unique_domains": "dominios únicos"
+        "unique_domains": "dominios únicos",
+        "rows_skipped": "filas omitidas (mal formadas)"
     }
 }
 
@@ -169,8 +171,44 @@ with tab1:
             encoding = result['encoding'] or 'utf-8'
             uploaded_file.seek(0)
             
-            # Read CSV
-            df_raw = pd.read_csv(uploaded_file, encoding=encoding)
+            # Read CSV with robust parsing - detect separator
+            import io
+            
+            # Detect separator (tab, comma, semicolon)
+            uploaded_file.seek(0)
+            sample = uploaded_file.read(2000).decode(encoding)
+            uploaded_file.seek(0)
+            
+            # Count separators in first line
+            first_line = sample.split('\n')[0]
+            sep_counts = {
+                '\t': first_line.count('\t'),
+                ',': first_line.count(','),
+                ';': first_line.count(';')
+            }
+            detected_sep = max(sep_counts, key=sep_counts.get)
+            
+            try:
+                # Try with detected separator
+                df_raw = pd.read_csv(
+                    uploaded_file, 
+                    encoding=encoding,
+                    sep=detected_sep,
+                    on_bad_lines='skip'
+                )
+                rows_skipped = 0
+            except:
+                # Fallback to auto-detect
+                uploaded_file.seek(0)
+                df_raw = pd.read_csv(
+                    uploaded_file, 
+                    encoding=encoding,
+                    on_bad_lines='skip',
+                    engine='python',
+                    sep=None
+                )
+                rows_skipped = 0
+            
             df_raw.columns = df_raw.columns.str.strip()
             
             # === AUTO PROCESSING (SILENT) ===
@@ -193,12 +231,18 @@ with tab1:
                 source_info = {"name": "Unknown", "icon": "❓"}
             
             # Success message with source badge
-            st.markdown(f"""
+            success_msg = f"""
             <div class="success-box">
                 ✅ <strong>{t('success_upload')}</strong><br>
                 {len(df_processed):,} {t('rows_loaded')} • {source_info['icon']} {t('source_detected')}: {source_info['name']}
-            </div>
-            """, unsafe_allow_html=True)
+            """
+            
+            if rows_skipped > 0:
+                success_msg += f"<br>⚠️ {rows_skipped} {t('rows_skipped')}"
+            
+            success_msg += "</div>"
+            
+            st.markdown(success_msg, unsafe_allow_html=True)
             
             # Metrics
             col1, col2, col3, col4 = st.columns(4)
@@ -260,8 +304,9 @@ with tab1:
             
         except Exception as e:
             st.error(f"❌ Error loading CSV: {str(e)}")
-            import traceback
-            st.code(traceback.format_exc())
+            with st.expander("🔍 Show full error trace"):
+                import traceback
+                st.code(traceback.format_exc())
     
     else:
         st.info("ℹ️ Please upload a CSV file to begin" if st.session_state.language == 'en' else "ℹ️ Por favor sube un archivo CSV para comenzar")
