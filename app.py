@@ -2,6 +2,14 @@ import streamlit as st
 import pandas as pd
 import chardet
 import io
+from utils.source_detector import detect_source_and_map
+from utils.data_normalizer import normalize_data
+from utils.project_identifier import (
+    get_domain_stats,
+    validate_competitors,
+    mark_project_domain,
+    get_competitor_list
+)
 
 # Configuración de página
 st.set_page_config(
@@ -29,4 +37,4 @@ if 'language' not in st.session_state:
 st.title("🔮 SEOcuantic Keyword Intelligence")
 st.write("v0.3.0")
 
-st.success("✅ Paso 1: Config básica funciona")
+st.success("✅ Paso 2: Imports de utils funcionan")
