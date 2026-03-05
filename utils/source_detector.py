@@ -18,24 +18,51 @@ class SourceDetector:
             "mappings": {
                 "keyword": ["Keyword", "keyword"],
                 "volume": ["Search vol.", "Search Volume", "volume"],
-                "traffic": ["Traffic", "traffic"],
-                "url": ["URL", "url", "Page"],
-                "position": ["Position", "position", "Pos"],
+                "traffic": ["Traffic", "traffic", "Current organic traffic"],
+                "url": ["URL", "url", "Page", "Current URL"],
+                "position": ["Position", "position", "Pos", "Current position"],
                 "kd": ["Difficulty", "KD", "Keyword Difficulty"],
                 "cpc": ["CPC"],
                 "previous_position": ["Previous position"]
             }
         },
-        "ahrefs": {
+        "ahrefs_organic_keywords": {
+            "name": "Ahrefs (Organic Keywords)",
+            "markers": ["Keyword", "Volume", "KD", "Current position", "Current URL", "Current organic traffic"],
+            "icon": "🟠",
+            "mappings": {
+                "keyword": ["Keyword"],
+                "volume": ["Volume"],
+                "traffic": ["Current organic traffic", "Organic traffic"],
+                "url": ["Current URL", "URL"],
+                "position": ["Current position", "Position"],
+                "kd": ["KD"],
+                "cpc": ["CPC"],
+                "previous_position": ["Previous position"]
+            }
+        },
+        "ahrefs_top_pages": {
+            "name": "Ahrefs (Top Pages)",
+            "markers": ["URL", "Traffic", "Top keyword", "Top keyword: Volume"],
+            "icon": "🟠",
+            "mappings": {
+                "url": ["URL"],
+                "traffic": ["Traffic"],
+                "keyword": ["Top keyword"],
+                "volume": ["Top keyword: Volume"],
+                "position": ["Top keyword: Position"]
+            }
+        },
+        "ahrefs_generic": {
             "name": "Ahrefs",
             "markers": ["Keyword", "Volume", "Traffic", "URL", "Position"],
             "icon": "🟠",
             "mappings": {
-                "keyword": ["Keyword"],
-                "volume": ["Volume", "Search volume"],
-                "traffic": ["Traffic"],
-                "url": ["URL", "Page"],
-                "position": ["Position", "Pos"],
+                "keyword": ["Keyword", "Top keyword"],
+                "volume": ["Volume", "Search volume", "Top keyword: Volume"],
+                "traffic": ["Traffic", "Current organic traffic"],
+                "url": ["URL", "Page", "Current URL"],
+                "position": ["Position", "Pos", "Current position", "Top keyword: Position"],
                 "kd": ["KD", "Keyword Difficulty"],
                 "cpc": ["CPC"]
             }
@@ -81,20 +108,41 @@ class SourceDetector:
         best_match = "unknown"
         best_score = 0.0
         
-        for source_key, source_data in SourceDetector.SOURCES.items():
+        # Check sources in priority order (most specific first)
+        priority_order = [
+            "ahrefs_organic_keywords",
+            "ahrefs_top_pages", 
+            "seranking",
+            "semrush",
+            "gsc",
+            "ahrefs_generic"
+        ]
+        
+        for source_key in priority_order:
+            if source_key not in SourceDetector.SOURCES:
+                continue
+                
+            source_data = SourceDetector.SOURCES[source_key]
             markers = source_data["markers"]
             markers_lower = [m.lower() for m in markers]
             
-            # Count how many markers are present
-            matches = sum(1 for marker in markers_lower if any(marker in col for col in columns_lower))
-            score = matches / len(markers)
+            # Count how many markers are present (exact match)
+            exact_matches = 0
+            for marker_lower in markers_lower:
+                for col_lower in columns_lower:
+                    if marker_lower == col_lower:
+                        exact_matches += 1
+                        break
+            
+            # Calculate score
+            score = exact_matches / len(markers)
             
             if score > best_score:
                 best_score = score
                 best_match = source_key
         
         # If confidence too low, mark as unknown
-        if best_score < 0.4:
+        if best_score < 0.5:
             best_match = "unknown"
         
         return best_match, best_score
