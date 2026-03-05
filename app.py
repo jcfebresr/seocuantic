@@ -1,8 +1,11 @@
 import streamlit as st
 import pandas as pd
 import chardet
+import io
+from utils.source_detector import detect_source_and_map
+from utils.data_normalizer import normalize_data
 
-# Page config
+# Configuración de página
 st.set_page_config(
     page_title="SEOcuantic Keyword Intelligence",
     page_icon="🔮",
@@ -10,332 +13,333 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Import utilities
-try:
-    from utils.source_detector import SourceDetector
-    from utils.data_normalizer import DataNormalizer
-    has_utils = True
-except:
-    has_utils = False
-
-# Custom CSS
+# CSS personalizado
 st.markdown("""
 <style>
     .stApp {
         background-color: #0F172A;
-        color: #F1F5F9;
-    }
-    .success-box {
-        background-color: #10B98122;
-        border-left: 4px solid #10B981;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
-    }
-    .warning-box {
-        background-color: #F59E0B22;
-        border-left: 4px solid #F59E0B;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        margin: 1rem 0;
     }
     .metric-card {
         background-color: #1E293B;
-        padding: 1.5rem;
+        padding: 1rem;
         border-radius: 0.5rem;
-        border: 1px solid #8B5CF644;
+        border-left: 4px solid #8B5CF6;
+    }
+    .success-box {
+        background-color: #10B98120;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #10B981;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #F59E0B20;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #F59E0B;
+        margin: 1rem 0;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 1rem 2rem;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Initialize session state
-if 'language' not in st.session_state:
-    st.session_state.language = 'en'
+# Inicializar session state
 if 'tier' not in st.session_state:
     st.session_state.tier = 'free'
+if 'language' not in st.session_state:
+    st.session_state.language = 'en'
+if 'df_raw' not in st.session_state:
+    st.session_state.df_raw = None
 if 'df_processed' not in st.session_state:
     st.session_state.df_processed = None
 if 'source_detected' not in st.session_state:
     st.session_state.source_detected = None
-
-# Translations
-TRANSLATIONS = {
-    "en": {
-        "app_title": "SEOcuantic Keyword Intelligence",
-        "app_subtitle": "Universal URL categorization & SEO gap analysis with AI",
-        "language": "Language",
-        "tier_free": "Free Tier",
-        "tier_premium": "Premium Tier",
-        "upgrade_button": "Upgrade to Premium",
-        "tab_upload": "📁 1. Upload & Setup",
-        "tab_identify": "🎯 2. Identify Your Project",
-        "tab_categorize": "🧠 3. Categorization",
-        "tab_insights": "📊 4. Insights & Analysis",
-        "tab_export": "📥 5. Export & Save",
-        "upload_csv": "Upload CSV File",
-        "upload_help": "Upload SEranking, Ahrefs, Semrush, GSC or custom CSV",
-        "preview_title": "Data Preview",
-        "rows_loaded": "rows loaded",
-        "success_upload": "CSV processed successfully",
-        "source_detected": "Detected",
-        "unique_domains": "unique domains",
-        "rows_skipped": "rows skipped (malformed)"
-    },
-    "es": {
-        "app_title": "SEOcuantic Keyword Intelligence",
-        "app_subtitle": "Categorización universal de URLs y análisis de gaps SEO con IA",
-        "language": "Idioma",
-        "tier_free": "Tier Gratuito",
-        "tier_premium": "Tier Premium",
-        "upgrade_button": "Mejorar a Premium",
-        "tab_upload": "📁 1. Subir & Configurar",
-        "tab_identify": "🎯 2. Identificar Tu Proyecto",
-        "tab_categorize": "🧠 3. Categorización",
-        "tab_insights": "📊 4. Análisis e Insights",
-        "tab_export": "📥 5. Exportar & Guardar",
-        "upload_csv": "Subir Archivo CSV",
-        "upload_help": "Sube CSV de SEranking, Ahrefs, Semrush, GSC o personalizado",
-        "preview_title": "Vista Previa de Datos",
-        "rows_loaded": "filas cargadas",
-        "success_upload": "CSV procesado exitosamente",
-        "source_detected": "Detectado",
-        "unique_domains": "dominios únicos",
-        "rows_skipped": "filas omitidas (mal formadas)"
-    }
-}
-
-def t(key, **kwargs):
-    """Get translation"""
-    lang = st.session_state.language
-    text = TRANSLATIONS.get(lang, TRANSLATIONS["en"]).get(key, key)
-    return text.format(**kwargs) if kwargs else text
+if 'encoding_detected' not in st.session_state:
+    st.session_state.encoding_detected = None
+if 'selected_domain' not in st.session_state:
+    st.session_state.selected_domain = None
+if 'competitor_domains' not in st.session_state:
+    st.session_state.competitor_domains = []
+if 'project_identified' not in st.session_state:
+    st.session_state.project_identified = False
 
 # Sidebar
 with st.sidebar:
-    st.markdown("# 🔮 SEOcuantic")
+    st.image("https://via.placeholder.com/200x60/8B5CF6/FFFFFF?text=SEOcuantic", use_container_width=True)
     
-    lang_display = st.selectbox(
-        "🌐 " + t("language"),
-        options=['English', 'Español'],
-        index=0 if st.session_state.language == 'en' else 1
+    # Language toggle
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🇬🇧 EN", use_container_width=True):
+            st.session_state.language = 'en'
+            st.rerun()
+    with col2:
+        if st.button("🇪🇸 ES", use_container_width=True):
+            st.session_state.language = 'es'
+            st.rerun()
+    
+    lang = st.session_state.language
+    
+    st.markdown("---")
+    
+    # Tier selector
+    st.subheader("💎 Plan" if lang == "en" else "💎 Plan")
+    tier = st.radio(
+        "Select tier:" if lang == "en" else "Selecciona tier:",
+        options=['free', 'premium'],
+        format_func=lambda x: f"{'🆓 Free' if x == 'free' else '⭐ Premium'}",
+        key='tier_selector',
+        label_visibility='collapsed'
     )
-    st.session_state.language = 'en' if lang_display == 'English' else 'es'
+    st.session_state.tier = tier
     
-    st.divider()
+    # Tier info
+    if tier == 'free':
+        st.info("**Free Tier**\n- Max 100 URLs\n- Max 2 competitors\n- Basic exports")
+    else:
+        st.success("**Premium Tier**\n- Unlimited URLs\n- Max 10 competitors\n- AI categorization\n- Advanced exports")
     
-    tier_label = t("tier_free" if st.session_state.tier == 'free' else "tier_premium")
-    tier_color = "#F59E0B" if st.session_state.tier == 'free' else "#10B981"
+    st.markdown("---")
     
-    st.markdown(f"""
-    <div style="background-color: {tier_color}22; border-left: 4px solid {tier_color}; padding: 0.75rem; border-radius: 0.5rem;">
-        <strong>📊 {tier_label}</strong>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if st.session_state.tier == 'free':
-        if st.button("⭐ " + t("upgrade_button"), use_container_width=True):
-            st.info("💡 Premium features coming soon!")
-    
-    st.divider()
-    st.caption(t('app_subtitle'))
+    # Stats
+    if st.session_state.df_processed is not None:
+        st.subheader("📊 Stats" if lang == "en" else "📊 Estadísticas")
+        df = st.session_state.df_processed
+        
+        st.metric("Total Rows" if lang == "en" else "Filas Totales", f"{len(df):,}")
+        st.metric("Unique Keywords" if lang == "en" else "Keywords Únicas", f"{df['keyword'].nunique():,}")
+        st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", f"{df['domain'].nunique():,}")
+        st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df['traffic'].sum():,.0f}")
 
 # Main content
-st.title(t('app_title'))
-st.markdown(f"<p style='color: #F1F5F988;'>{t('app_subtitle')}</p>", unsafe_allow_html=True)
-st.divider()
+lang = st.session_state.language
+
+st.title("🔮 SEOcuantic Keyword Intelligence")
+st.markdown("**v0.3.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.3.0** - Análisis SEO con IA")
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    t('tab_upload'),
-    t('tab_identify'),
-    t('tab_categorize'),
-    t('tab_insights'),
-    t('tab_export')
+tab1, tab2, tab3 = st.tabs([
+    "📤 Upload CSV" if lang == "en" else "📤 Subir CSV",
+    "🎯 Identify Project" if lang == "en" else "🎯 Identificar Proyecto",
+    "📁 Categorization" if lang == "en" else "📁 Categorización"
 ])
 
-# TAB 1: Upload & Setup
+# TAB 1: Upload CSV
 with tab1:
-    st.header(t('tab_upload'))
+    st.header("📤 Upload CSV" if lang == "en" else "📤 Subir CSV")
+    
+    st.markdown("""
+    **Supported sources:**
+    - SEranking
+    - Ahrefs (Top Pages, Organic Keywords, Generic)
+    - Semrush
+    - Google Search Console
+    """ if lang == "en" else """
+    **Fuentes soportadas:**
+    - SEranking
+    - Ahrefs (Top Pages, Organic Keywords, Genérico)
+    - Semrush
+    - Google Search Console
+    """)
     
     uploaded_file = st.file_uploader(
-        t('upload_csv'),
+        "Drop your CSV here" if lang == "en" else "Arrastra tu CSV aquí",
         type=['csv'],
-        help=t('upload_help')
+        help="CSV file with keyword data" if lang == "en" else "Archivo CSV con datos de keywords"
     )
     
-    if uploaded_file:
+    if uploaded_file is not None:
         try:
-            # Auto-detect encoding
+            # Detectar encoding
             raw_data = uploaded_file.read()
-            result = chardet.detect(raw_data)
-            encoding = result['encoding'] or 'utf-8'
+            detected = chardet.detect(raw_data)
+            encoding = detected['encoding']
+            st.session_state.encoding_detected = encoding
+            
+            # Leer CSV
             uploaded_file.seek(0)
             
-            # Read CSV with robust parsing - detect separator
-            import io
+            # Intentar leer con diferentes separadores
+            separators = [',', '\t', ';']
+            df_raw = None
             
-            # Detect separator (tab, comma, semicolon)
-            uploaded_file.seek(0)
-            sample = uploaded_file.read(2000).decode(encoding)
-            uploaded_file.seek(0)
+            for sep in separators:
+                try:
+                    uploaded_file.seek(0)
+                    df_raw = pd.read_csv(
+                        uploaded_file,
+                        encoding=encoding,
+                        sep=sep,
+                        on_bad_lines='skip',
+                        engine='python'
+                    )
+                    if len(df_raw.columns) > 1:  # Validar que se separó correctamente
+                        break
+                except:
+                    continue
             
-            # Count separators in first line
-            first_line = sample.split('\n')[0]
-            sep_counts = {
-                '\t': first_line.count('\t'),
-                ',': first_line.count(','),
-                ';': first_line.count(';')
-            }
-            detected_sep = max(sep_counts, key=sep_counts.get)
-            
-            try:
-                # Try with detected separator
-                df_raw = pd.read_csv(
-                    uploaded_file, 
-                    encoding=encoding,
-                    sep=detected_sep,
-                    on_bad_lines='skip'
-                )
-                rows_skipped = 0
-            except:
-                # Fallback to auto-detect
-                uploaded_file.seek(0)
-                df_raw = pd.read_csv(
-                    uploaded_file, 
-                    encoding=encoding,
-                    on_bad_lines='skip',
-                    engine='python',
-                    sep=None
-                )
-                rows_skipped = 0
-            
-            df_raw.columns = df_raw.columns.str.strip()
-            
-            # === AUTO PROCESSING (SILENT) ===
-            if has_utils:
-                # Detect source
-                source, confidence = SourceDetector.detect_source(df_raw.columns.tolist())
-                st.session_state.source_detected = source
-                source_info = SourceDetector.get_source_info(source)
-                
-                # Auto-map columns
-                mapping = SourceDetector.map_columns(df_raw.columns.tolist(), source)
-                
-                # Auto-normalize
-                df_processed = DataNormalizer.normalize_dataframe(df_raw, mapping)
-                st.session_state.df_processed = df_processed
+            if df_raw is None or len(df_raw) == 0:
+                st.error("❌ Could not read CSV. Check format." if lang == "en" else "❌ No se pudo leer el CSV. Verifica el formato.")
             else:
-                # Fallback if utils not available
-                df_processed = df_raw
-                st.session_state.df_processed = df_processed
-                source_info = {"name": "Unknown", "icon": "❓"}
-            
-            # Success message with source badge
-            success_msg = f"""
-            <div class="success-box">
-                ✅ <strong>{t('success_upload')}</strong><br>
-                {len(df_processed):,} {t('rows_loaded')} • {source_info['icon']} {t('source_detected')}: {source_info['name']}
-            """
-            
-            if rows_skipped > 0:
-                success_msg += f"<br>⚠️ {rows_skipped} {t('rows_skipped')}"
-            
-            success_msg += "</div>"
-            
-            st.markdown(success_msg, unsafe_allow_html=True)
-            
-            # Metrics
-            col1, col2, col3, col4 = st.columns(4)
-            
-            with col1:
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{len(df_processed):,}</h3>
-                    <p style="margin:0; color: #F1F5F988;">Total Rows</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col2:
-                n_keywords = df_processed['keyword'].nunique() if 'keyword' in df_processed.columns else 0
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{n_keywords:,}</h3>
-                    <p style="margin:0; color: #F1F5F988;">Unique Keywords</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col3:
-                n_domains = df_processed['domain'].nunique() if 'domain' in df_processed.columns else 0
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{n_domains}</h3>
-                    <p style="margin:0; color: #F1F5F988;">{t('unique_domains').title()}</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            with col4:
-                total_traffic = int(df_processed['traffic'].sum()) if 'traffic' in df_processed.columns else 0
-                st.markdown(f"""
-                <div class="metric-card">
-                    <h3 style="margin:0; color: #8B5CF6;">{total_traffic:,}</h3>
-                    <p style="margin:0; color: #F1F5F988;">Total Traffic</p>
-                </div>
-                """, unsafe_allow_html=True)
-            
-            st.divider()
-            
-            # Data preview
-            st.subheader(t('preview_title'))
-            st.dataframe(
-                df_processed.head(100),
-                use_container_width=True,
-                height=400
-            )
-            
-            # Column stats
-            with st.expander("📊 Column Statistics", expanded=False):
-                col_stats = pd.DataFrame({
-                    'Column': df_processed.columns,
-                    'Type': [str(dtype) for dtype in df_processed.dtypes],
-                    'Null Count': [df_processed[col].isnull().sum() for col in df_processed.columns],
-                    'Null %': [round(df_processed[col].isnull().sum() / len(df_processed) * 100, 1) for col in df_processed.columns]
-                })
-                st.dataframe(col_stats, use_container_width=True)
-            
-        except Exception as e:
-            st.error(f"❌ Error loading CSV: {str(e)}")
-            with st.expander("🔍 Show full error trace"):
-                import traceback
-                st.code(traceback.format_exc())
-    
-    else:
-        st.info("ℹ️ Please upload a CSV file to begin" if st.session_state.language == 'en' else "ℹ️ Por favor sube un archivo CSV para comenzar")
+                st.session_state.df_raw = df_raw
+                
+                # Auto-detectar fuente y normalizar
+                with st.spinner("🔍 Detecting source and normalizing..." if lang == "en" else "🔍 Detectando fuente y normalizando..."):
+                    source, df_mapped = detect_source_and_map(df_raw)
+                    st.session_state.source_detected = source
+                    
+                    if df_mapped is not None:
+                        df_normalized = normalize_data(df_mapped)
+                        st.session_state.df_processed = df_normalized
+                        
+                        # Validar tier limits
+                        if st.session_state.tier == 'free' and len(df_normalized) > 100:
+                            st.warning(f"⚠️ Free tier: 100 URLs max. Showing first 100 rows." if lang == "en" else f"⚠️ Tier gratuito: máximo 100 URLs. Mostrando primeras 100 filas.")
+                            st.session_state.df_processed = df_normalized.head(100)
+                        
+                        # Success message
+                        st.markdown(f"""
+                        <div class="success-box">
+                            <h3>✅ {"CSV Processed Successfully!" if lang == "en" else "¡CSV Procesado Exitosamente!"}</h3>
+                            <p><strong>{"Source detected:" if lang == "en" else "Fuente detectada:"}</strong> {source.upper()}</p>
+                            <p><strong>{"Encoding:" if lang == "en" else "Codificación:"}</strong> {encoding}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        # Metrics
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("Total Rows" if lang == "en" else "Filas", len(df_normalized))
+                        with col2:
+                            st.metric("Unique Keywords" if lang == "en" else "Keywords Únicas", df_normalized['keyword'].nunique())
+                        with col3:
+                            st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", df_normalized['domain'].nunique())
+                        with col4:
+                            st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df_normalized['traffic'].sum():,.0f}")
+                        
+                        # Preview
+                        st.subheader("📋 Data Preview" if lang == "en" else "📋 Vista Previa")
+                        st.dataframe(df_normalized.head(100), use_container_width=True)
+                    else:
+                        st.error("❌ Could not map columns. Unknown format." if lang == "en" else "❌ No se pudieron mapear las columnas. Formato desconocido.")
         
-        # Example
-        st.markdown("---")
-        st.markdown("**Example CSV format:**" if st.session_state.language == 'en' else "**Formato CSV de ejemplo:**")
-        example_df = pd.DataFrame({
-            'Keyword': ['seo tools', 'keyword research', 'backlink checker'],
-            'URL': ['example.com/tools', 'example.com/blog/research', 'example.com/backlinks'],
-            'Search vol.': [1000, 800, 500],
-            'Traffic': [150, 120, 80],
-            'Position': [3, 5, 8]
-        })
-        st.dataframe(example_df, use_container_width=True)
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
 
-# TAB 2-5: Placeholders
+# TAB 2: Identify Project
 with tab2:
-    if st.session_state.df_processed is not None:
-        st.success("✅ Ready for project identification")
-        st.info("🚧 Coming in Module 3")
+    st.header("🎯 Identify Your Project" if lang == "en" else "🎯 Identifica Tu Proyecto")
+    
+    if 'df_processed' not in st.session_state or st.session_state.df_processed is None:
+        st.warning("⚠️ Upload a CSV first" if lang == "en" else "⚠️ Primero sube un CSV")
     else:
-        st.info("⬅️ Upload CSV first")
+        from utils.project_identifier import (
+            get_domain_stats,
+            validate_competitors,
+            mark_project_domain,
+            get_competitor_list
+        )
+        
+        df = st.session_state.df_processed
+        
+        # Extraer estadísticas por dominio
+        domain_stats = get_domain_stats(df)
+        
+        st.subheader("📊 Detected Domains" if lang == "en" else "📊 Dominios Detectados")
+        st.markdown(f"**{len(domain_stats)}** domains found" if lang == "en" else f"**{len(domain_stats)}** dominios encontrados")
+        
+        # Validar límites de tier
+        tier = st.session_state.get('tier', 'free')
+        is_valid, msg, max_comp = validate_competitors(len(domain_stats), tier)
+        
+        if not is_valid:
+            st.markdown(f"""
+            <div class="warning-box">
+                <strong>⚠️ {msg}</strong><br>
+                {"Select which competitors to keep." if lang == "en" else "Selecciona qué competidores mantener."}
+            </div>
+            """, unsafe_allow_html=True)
+        
+        # Tabla de selección
+        st.markdown("---")
+        st.markdown("**Select YOUR domain** (rest = competitors)" if lang == "en" else "**Selecciona TU dominio** (resto = competidores)")
+        
+        # Radio buttons para seleccionar dominio propio
+        selected_domain = st.radio(
+            "Your project domain:" if lang == "en" else "Tu dominio:",
+            options=domain_stats['domain'].tolist(),
+            format_func=lambda x: f"🌐 {x} — {domain_stats[domain_stats['domain']==x]['keywords'].values[0]:,.0f} kws, {domain_stats[domain_stats['domain']==x]['traffic'].values[0]:,.0f} traffic",
+            key='domain_selector',
+            label_visibility='collapsed'
+        )
+        
+        # Mostrar tabla completa con stats
+        st.dataframe(
+            domain_stats.style.format({
+                'traffic': '{:,.0f}',
+                'keywords': '{:,.0f}',
+                'urls': '{:,.0f}'
+            }),
+            use_container_width=True,
+            hide_index=True
+        )
+        
+        # Botón de confirmación
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
+        
+        with col2:
+            if st.button("✅ Confirm" if lang == "en" else "✅ Confirmar", type="primary", use_container_width=True):
+                
+                # Validar límite de competidores
+                competitors = get_competitor_list(df, selected_domain)
+                
+                if len(competitors) > max_comp:
+                    st.error(f"❌ Limit: {max_comp} competitors. You have {len(competitors)}." if lang == "en" else f"❌ Límite: {max_comp} competidores. Tienes {len(competitors)}.")
+                else:
+                    # Marcar dominio del cliente
+                    df_marked = mark_project_domain(df, selected_domain)
+                    
+                    # Actualizar session state
+                    st.session_state.df_processed = df_marked
+                    st.session_state.selected_domain = selected_domain
+                    st.session_state.competitor_domains = competitors
+                    st.session_state.project_identified = True
+                    
+                    st.success(f"✅ Project identified: **{selected_domain}**" if lang == "en" else f"✅ Proyecto identificado: **{selected_domain}**")
+                    st.info(f"🎯 {len(competitors)} competitors marked" if lang == "en" else f"🎯 {len(competitors)} competidores marcados")
+                    st.balloons()
+        
+        # Mostrar estado si ya está identificado
+        if st.session_state.get('project_identified', False):
+            st.markdown("---")
+            st.markdown("### ✅ Project Status" if lang == "en" else "### ✅ Estado del Proyecto")
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Your Domain" if lang == "en" else "Tu Dominio", st.session_state.selected_domain)
+            with col2:
+                client_kws = len(df[df['is_client'] == True])
+                st.metric("Your Keywords" if lang == "en" else "Tus Keywords", f"{client_kws:,}")
+            with col3:
+                st.metric("Competitors" if lang == "en" else "Competidores", len(st.session_state.competitor_domains))
+            
+            # Listado de competidores
+            with st.expander("📋 View Competitors" if lang == "en" else "📋 Ver Competidores"):
+                for comp in st.session_state.competitor_domains:
+                    comp_stats = domain_stats[domain_stats['domain'] == comp].iloc[0]
+                    st.markdown(f"- **{comp}** — {comp_stats['keywords']:,.0f} kws, {comp_stats['traffic']:,.0f} traffic")
 
+# TAB 3: Categorization (placeholder)
 with tab3:
-    st.info("🚧 Module 3: Categorization - Coming soon" if st.session_state.language == 'en' else "🚧 Módulo 3: Categorización - Próximamente")
-
-with tab4:
-    st.info("🚧 Module 4: Insights & Analysis - Coming soon" if st.session_state.language == 'en' else "🚧 Módulo 4: Análisis e Insights - Próximamente")
-
-with tab5:
-    st.info("🚧 Module 5: Export & Save - Coming soon" if st.session_state.language == 'en' else "🚧 Módulo 5: Exportar y Guardar - Próximamente")
+    st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
+    
+    if not st.session_state.get('project_identified', False):
+        st.warning("⚠️ Identify your project first (Tab 2)" if lang == "en" else "⚠️ Primero identifica tu proyecto (Tab 2)")
+    else:
+        st.info("🚧 Coming soon: URL categorization" if lang == "en" else "🚧 Próximamente: categorización de URLs")
