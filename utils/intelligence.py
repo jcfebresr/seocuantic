@@ -34,6 +34,9 @@ class SEOIntelligence:
         if len(df_client) == 0:
             return pd.DataFrame()
         
+        # Get client domain (assuming single project domain)
+        client_domain = df_client['domain'].iloc[0] if 'domain' in df_client.columns else 'Unknown'
+        
         # Dynamic aggregation dict (in case columns are missing)
         agg_dict = {
             'url': ['count', lambda x: ' | '.join(x.astype(str).unique())],
@@ -90,6 +93,21 @@ class SEOIntelligence:
                 return '🟡 Warning' if row['urls_count'] >= 2 else '⚪ Minor'
         
         cannibalization['severity'] = cannibalization.apply(calculate_severity, axis=1)
+        
+        # Add client domain column
+        cannibalization.insert(0, 'your_domain', client_domain)
+        
+        # Add "Your Best Position" column
+        if 'positions_raw' in cannibalization.columns:
+            def get_best_position(positions_raw):
+                valid_positions = [p for p in positions_raw if pd.notna(p) and p > 0]
+                if not valid_positions:
+                    return 'Not Ranking'
+                return str(int(min(valid_positions)))
+            
+            cannibalization.insert(1, 'your_best_position', cannibalization['positions_raw'].apply(get_best_position))
+        else:
+            cannibalization.insert(1, 'your_best_position', 'Not Ranking')
         
         # Remove raw column used for calculation
         if 'positions_raw' in cannibalization.columns:
