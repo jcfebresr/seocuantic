@@ -78,6 +78,220 @@ class SEOVisualizations:
         return fig
     
     @staticmethod
+    def category_comparison_grouped(df: pd.DataFrame) -> Optional[go.Figure]:
+        """
+        Grouped bar chart: Category keywords comparison side-by-side
+        
+        Args:
+            df: DataFrame with 'domain', 'category', 'keyword'
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if not all(col in df.columns for col in ['domain', 'category', 'keyword']):
+            return None
+        
+        # Count keywords per domain+category
+        keyword_counts = df.groupby(['domain', 'category'])['keyword'].count().reset_index()
+        keyword_counts.columns = ['domain', 'category', 'count']
+        
+        # Pivot for grouped bars
+        pivot = keyword_counts.pivot(index='category', columns='domain', values='count').fillna(0)
+        
+        # Create traces for each domain
+        fig = go.Figure()
+        
+        colors_list = [SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['primary'], 
+                      SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['info'],
+                      '#10B981', '#8B5CF6', '#F59E0B', '#3B82F6']
+        
+        for i, domain in enumerate(pivot.columns):
+            fig.add_trace(go.Bar(
+                name=domain,
+                x=pivot.index,
+                y=pivot[domain],
+                marker_color=colors_list[i % len(colors_list)],
+                text=pivot[domain],
+                texttemplate='%{text:.0f}',
+                textposition='outside',
+                hovertemplate=f'<b>{domain}</b><br>%{{x}}<br>Keywords: %{{y:.0f}}<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title='Keyword Count Comparison by Category',
+            xaxis_title='Category',
+            yaxis_title='Keyword Count',
+            barmode='group',
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=600,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        
+        return fig
+    
+    @staticmethod
+    def traffic_funnel(df: pd.DataFrame, domain: Optional[str] = None) -> Optional[go.Figure]:
+        """
+        Funnel chart: Traffic by position buckets
+        Shows drop-off from Top 3 → Top 100
+        
+        Args:
+            df: DataFrame with 'position' and 'traffic'
+            domain: Optional filter by domain
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if 'position' not in df.columns or 'traffic' not in df.columns:
+            return None
+        
+        # Filter by domain
+        df_filtered = df[df['domain'] == domain] if domain and 'domain' in df.columns else df
+        
+        # Filter valid positions
+        df_pos = df_filtered[df_filtered['position'].notna() & (df_filtered['position'] > 0)].copy()
+        
+        if len(df_pos) == 0:
+            return None
+        
+        # Create buckets
+        df_pos['bucket'] = pd.cut(
+            df_pos['position'],
+            bins=[0, 3, 10, 20, 50, 100],
+            labels=['Top 3', 'Top 10', 'Top 20', 'Top 50', 'Top 100']
+        )
+        
+        traffic_by_bucket = df_pos.groupby('bucket')['traffic'].sum().reset_index()
+        
+        # Ensure correct order
+        bucket_order = ['Top 3', 'Top 10', 'Top 20', 'Top 50', 'Top 100']
+        traffic_by_bucket['bucket'] = pd.Categorical(traffic_by_bucket['bucket'], categories=bucket_order, ordered=True)
+        traffic_by_bucket = traffic_by_bucket.sort_values('bucket')
+        
+        fig = go.Figure(go.Funnel(
+            y=traffic_by_bucket['bucket'],
+            x=traffic_by_bucket['traffic'],
+            textinfo="value+percent initial",
+            marker=dict(
+                color=[SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['info'],
+                      SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['danger'], '#94A3B8']
+            ),
+            hovertemplate='<b>%{y}</b><br>Traffic: %{x:,.0f}<extra></extra>'
+        ))
+        
+        title = 'Traffic Funnel by Position'
+        if domain:
+            title += f' - {domain}'
+        
+        fig.update_layout(
+            title=title,
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=500
+        )
+        
+        return fig
+    
+    @staticmethod
+    def volume_vs_traffic_scatter(df: pd.DataFrame) -> Optional[go.Figure]:
+        """
+        Scatter plot: Volume vs Traffic with domain colors
+        Shows which keywords over/under-perform
+        
+        Args:
+            df: DataFrame with 'volume', 'traffic', 'keyword', 'domain'
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if not all(col in df.columns for col in ['volume', 'traffic', 'keyword']):
+            return None
+        
+        # Filter valid data
+        df_scatter = df[(df['volume'] > 0) & (df['traffic'] > 0)].copy()
+        
+        if len(df_scatter) == 0:
+            return None
+        
+        # Efficiency ratio
+        df_scatter['efficiency'] = df_scatter['traffic'] / df_scatter['volume']
+        
+        fig = go.Figure()
+        
+        if 'domain' in df_scatter.columns:
+            # Color by domain
+            domains = df_scatter['domain'].unique()
+            colors_list = [SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['primary'], 
+                          SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['info']]
+            
+            for i, domain in enumerate(domains):
+                df_domain = df_scatter[df_scatter['domain'] == domain]
+                
+                fig.add_trace(go.Scatter(
+                    x=df_domain['volume'],
+                    y=df_domain['traffic'],
+                    mode='markers',
+                    name=domain,
+                    marker=dict(
+                        size=8,
+                        color=colors_list[i % len(colors_list)],
+                        opacity=0.7,
+                        line=dict(width=1, color='white')
+                    ),
+                    text=df_domain['keyword'],
+                    hovertemplate='<b>%{text}</b><br>Volume: %{x:,.0f}<br>Traffic: %{y:,.0f}<extra></extra>'
+                ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=df_scatter['volume'],
+                y=df_scatter['traffic'],
+                mode='markers',
+                marker=dict(
+                    size=8,
+                    color=SEOVisualizations.COLORS['primary'],
+                    opacity=0.7
+                ),
+                text=df_scatter['keyword'],
+                hovertemplate='<b>%{text}</b><br>Volume: %{x:,.0f}<br>Traffic: %{y:,.0f}<extra></extra>'
+            ))
+        
+        # Add diagonal reference line (perfect efficiency)
+        max_val = max(df_scatter['volume'].max(), df_scatter['traffic'].max())
+        fig.add_trace(go.Scatter(
+            x=[0, max_val],
+            y=[0, max_val],
+            mode='lines',
+            line=dict(color='gray', dash='dash', width=1),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.update_layout(
+            title='Volume vs Traffic: Keyword Efficiency',
+            xaxis_title='Search Volume',
+            yaxis_title='Traffic',
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=600,
+            hovermode='closest'
+        )
+        
+        return fig
+    
+    @staticmethod
     def traffic_by_category(df: pd.DataFrame, domain: Optional[str] = None) -> Optional[go.Figure]:
         """
         Pie chart: Traffic distribution by category
@@ -352,6 +566,279 @@ class SEOVisualizations:
     
     @staticmethod
     def position_distribution(df: pd.DataFrame) -> Optional[go.Figure]:
+        """
+        Histogram: Position distribution (Top 3, Top 10, Top 20, etc)
+        
+        Args:
+            df: DataFrame with 'position' column
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if 'position' not in df.columns:
+            return None
+        
+        # Filter valid positions
+        df_pos = df[df['position'].notna() & (df['position'] > 0)].copy()
+        
+        if len(df_pos) == 0:
+            return None
+        
+        # Create buckets
+        df_pos['bucket'] = pd.cut(
+            df_pos['position'],
+            bins=[0, 3, 10, 20, 50, 100, float('inf')],
+            labels=['Top 3', 'Top 10', 'Top 20', 'Top 50', 'Top 100', '100+']
+        )
+        
+        bucket_counts = df_pos['bucket'].value_counts().reset_index()
+        bucket_counts.columns = ['bucket', 'count']
+        
+        # Sort by bucket order
+        bucket_order = ['Top 3', 'Top 10', 'Top 20', 'Top 50', 'Top 100', '100+']
+        bucket_counts['bucket'] = pd.Categorical(bucket_counts['bucket'], categories=bucket_order, ordered=True)
+        bucket_counts = bucket_counts.sort_values('bucket')
+        
+        # Color gradient
+        colors = [SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['info'], 
+                 SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['danger'],
+                 '#94A3B8', '#64748B']
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=bucket_counts['bucket'],
+                y=bucket_counts['count'],
+                marker_color=colors[:len(bucket_counts)],
+                text=bucket_counts['count'],
+                texttemplate='%{text:,.0f}',
+                textposition='outside',
+                hovertemplate='<b>%{x}</b><br>Keywords: %{y:,.0f}<extra></extra>'
+            )
+        ])
+        
+        fig.update_layout(
+            title='Position Distribution',
+            xaxis_title='Position Bucket',
+            yaxis_title='Number of Keywords',
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=500
+        )
+        
+        return fig
+        """
+        Grouped bar chart: Category keywords comparison side-by-side
+        
+        Args:
+            df: DataFrame with 'domain', 'category', 'keyword'
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if not all(col in df.columns for col in ['domain', 'category', 'keyword']):
+            return None
+        
+        # Count keywords per domain+category
+        keyword_counts = df.groupby(['domain', 'category'])['keyword'].count().reset_index()
+        keyword_counts.columns = ['domain', 'category', 'count']
+        
+        # Pivot for grouped bars
+        pivot = keyword_counts.pivot(index='category', columns='domain', values='count').fillna(0)
+        
+        # Create traces for each domain
+        fig = go.Figure()
+        
+        colors_list = [SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['primary'], 
+                      SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['info'],
+                      '#10B981', '#8B5CF6', '#F59E0B', '#3B82F6']
+        
+        for i, domain in enumerate(pivot.columns):
+            fig.add_trace(go.Bar(
+                name=domain,
+                x=pivot.index,
+                y=pivot[domain],
+                marker_color=colors_list[i % len(colors_list)],
+                text=pivot[domain],
+                texttemplate='%{text:.0f}',
+                textposition='outside',
+                hovertemplate=f'<b>{domain}</b><br>%{{x}}<br>Keywords: %{{y:.0f}}<extra></extra>'
+            ))
+        
+        fig.update_layout(
+            title='Keyword Count Comparison by Category',
+            xaxis_title='Category',
+            yaxis_title='Keyword Count',
+            barmode='group',
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=600,
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            )
+        )
+        
+        return fig
+    
+    @staticmethod
+    def traffic_funnel(df: pd.DataFrame, domain: Optional[str] = None) -> Optional[go.Figure]:
+        """
+        Funnel chart: Traffic by position buckets
+        Shows drop-off from Top 3 → Top 100
+        
+        Args:
+            df: DataFrame with 'position' and 'traffic'
+            domain: Optional filter by domain
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if 'position' not in df.columns or 'traffic' not in df.columns:
+            return None
+        
+        # Filter by domain
+        df_filtered = df[df['domain'] == domain] if domain and 'domain' in df.columns else df
+        
+        # Filter valid positions
+        df_pos = df_filtered[df_filtered['position'].notna() & (df_filtered['position'] > 0)].copy()
+        
+        if len(df_pos) == 0:
+            return None
+        
+        # Create buckets
+        df_pos['bucket'] = pd.cut(
+            df_pos['position'],
+            bins=[0, 3, 10, 20, 50, 100],
+            labels=['Top 3', 'Top 10', 'Top 20', 'Top 50', 'Top 100']
+        )
+        
+        traffic_by_bucket = df_pos.groupby('bucket')['traffic'].sum().reset_index()
+        
+        # Ensure correct order
+        bucket_order = ['Top 3', 'Top 10', 'Top 20', 'Top 50', 'Top 100']
+        traffic_by_bucket['bucket'] = pd.Categorical(traffic_by_bucket['bucket'], categories=bucket_order, ordered=True)
+        traffic_by_bucket = traffic_by_bucket.sort_values('bucket')
+        
+        fig = go.Figure(go.Funnel(
+            y=traffic_by_bucket['bucket'],
+            x=traffic_by_bucket['traffic'],
+            textinfo="value+percent initial",
+            marker=dict(
+                color=[SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['info'],
+                      SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['danger'], '#94A3B8']
+            ),
+            hovertemplate='<b>%{y}</b><br>Traffic: %{x:,.0f}<extra></extra>'
+        ))
+        
+        title = 'Traffic Funnel by Position'
+        if domain:
+            title += f' - {domain}'
+        
+        fig.update_layout(
+            title=title,
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=500
+        )
+        
+        return fig
+    
+    @staticmethod
+    def volume_vs_traffic_scatter(df: pd.DataFrame) -> Optional[go.Figure]:
+        """
+        Scatter plot: Volume vs Traffic with domain colors
+        Shows which keywords over/under-perform
+        
+        Args:
+            df: DataFrame with 'volume', 'traffic', 'keyword', 'domain'
+        
+        Returns:
+            Plotly Figure or None
+        """
+        if not all(col in df.columns for col in ['volume', 'traffic', 'keyword']):
+            return None
+        
+        # Filter valid data
+        df_scatter = df[(df['volume'] > 0) & (df['traffic'] > 0)].copy()
+        
+        if len(df_scatter) == 0:
+            return None
+        
+        # Efficiency ratio
+        df_scatter['efficiency'] = df_scatter['traffic'] / df_scatter['volume']
+        
+        fig = go.Figure()
+        
+        if 'domain' in df_scatter.columns:
+            # Color by domain
+            domains = df_scatter['domain'].unique()
+            colors_list = [SEOVisualizations.COLORS['success'], SEOVisualizations.COLORS['primary'], 
+                          SEOVisualizations.COLORS['warning'], SEOVisualizations.COLORS['info']]
+            
+            for i, domain in enumerate(domains):
+                df_domain = df_scatter[df_scatter['domain'] == domain]
+                
+                fig.add_trace(go.Scatter(
+                    x=df_domain['volume'],
+                    y=df_domain['traffic'],
+                    mode='markers',
+                    name=domain,
+                    marker=dict(
+                        size=8,
+                        color=colors_list[i % len(colors_list)],
+                        opacity=0.7,
+                        line=dict(width=1, color='white')
+                    ),
+                    text=df_domain['keyword'],
+                    hovertemplate='<b>%{text}</b><br>Volume: %{x:,.0f}<br>Traffic: %{y:,.0f}<extra></extra>'
+                ))
+        else:
+            fig.add_trace(go.Scatter(
+                x=df_scatter['volume'],
+                y=df_scatter['traffic'],
+                mode='markers',
+                marker=dict(
+                    size=8,
+                    color=SEOVisualizations.COLORS['primary'],
+                    opacity=0.7
+                ),
+                text=df_scatter['keyword'],
+                hovertemplate='<b>%{text}</b><br>Volume: %{x:,.0f}<br>Traffic: %{y:,.0f}<extra></extra>'
+            ))
+        
+        # Add diagonal reference line (perfect efficiency)
+        max_val = max(df_scatter['volume'].max(), df_scatter['traffic'].max())
+        fig.add_trace(go.Scatter(
+            x=[0, max_val],
+            y=[0, max_val],
+            mode='lines',
+            line=dict(color='gray', dash='dash', width=1),
+            showlegend=False,
+            hoverinfo='skip'
+        ))
+        
+        fig.update_layout(
+            title='Volume vs Traffic: Keyword Efficiency',
+            xaxis_title='Search Volume',
+            yaxis_title='Traffic',
+            template='plotly_dark',
+            plot_bgcolor=SEOVisualizations.COLORS['dark'],
+            paper_bgcolor=SEOVisualizations.COLORS['dark'],
+            font=dict(color=SEOVisualizations.COLORS['light']),
+            height=600,
+            hovermode='closest'
+        )
+        
+        return fig
         """
         Histogram: Position distribution (Top 3, Top 10, Top 20, etc)
         
