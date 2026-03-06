@@ -764,11 +764,11 @@ with tab3:
                     
                     st.markdown("---")
                     
-                    # Table
+                    # Tables separated by zone
                     st.markdown("### 📋 Competitive Zone Classification" if lang == "en" else "### 📋 Clasificación de Zonas Competitivas")
                     
                     # Build display columns
-                    display_cols = ['zone', 'keyword']
+                    display_cols = ['keyword']
                     
                     if 'volume' in zones.columns:
                         display_cols.append('volume')
@@ -781,9 +781,60 @@ with tab3:
                     if 'volume' in zones.columns:
                         format_dict['volume'] = '{:,.0f}'
                     
-                    st.dataframe(
-                        zones[display_cols].style.format(format_dict),
-                        use_container_width=True,
-                        hide_index=True,
-                        height=400
-                    )
+                    # Table 1: Dominio
+                    st.markdown("#### 🟢 Dominio (Only YOU rank)" if lang == "en" else "#### 🟢 Dominio (Solo TÚ rankeas)")
+                    dominio_data = zones[zones['zone'] == '🟢 Dominio']
+                    if len(dominio_data) > 0:
+                        st.dataframe(
+                            dominio_data[display_cols].style.format(format_dict),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=300
+                        )
+                    else:
+                        st.info("No keywords in this zone" if lang == "en" else "No hay keywords en esta zona")
+                    
+                    st.markdown("---")
+                    
+                    # Table 2: Guerra
+                    st.markdown("#### 🔴 Guerra (YOU + Competitors)" if lang == "en" else "#### 🔴 Guerra (TÚ + Competidores)")
+                    guerra_data = zones[zones['zone'] == '🔴 Guerra']
+                    if len(guerra_data) > 0:
+                        st.dataframe(
+                            guerra_data[display_cols].style.format(format_dict),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=300
+                        )
+                    else:
+                        st.info("No keywords in this zone" if lang == "en" else "No hay keywords en esta zona")
+                    
+                    st.markdown("---")
+                    
+                    # Table 3: QuickWin
+                    st.markdown("#### 🟡 QuickWin (Low volume opportunities)" if lang == "en" else "#### 🟡 QuickWin (Oportunidades de bajo volumen)")
+                    quickwin_data = zones[zones['zone'] == '🟡 QuickWin']
+                    if len(quickwin_data) > 0:
+                        st.dataframe(
+                            quickwin_data[display_cols].style.format(format_dict),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=300
+                        )
+                    else:
+                        st.info("No keywords in this zone" if lang == "en" else "No hay keywords en esta zona")
+                    
+                    st.markdown("---")
+                    
+                    # Table 4: Gap
+                    st.markdown("#### 🟣 Gap (High volume, difficult)" if lang == "en" else "#### 🟣 Gap (Alto volumen, difícil)")
+                    gap_data = zones[zones['zone'] == '🟣 Gap']
+                    if len(gap_data) > 0:
+                        st.dataframe(
+                            gap_data[display_cols].style.format(format_dict),
+                            use_container_width=True,
+                            hide_index=True,
+                            height=300
+                        )
+                    else:
+                        st.info("No keywords in this zone" if lang == "en" else "No hay keywords en esta zona")
