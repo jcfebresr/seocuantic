@@ -131,11 +131,12 @@ st.title("🔮 Keyword Intelligence")
 st.markdown("**v0.6.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.6.0** - Análisis SEO con IA")
 
 # Tabs
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
     "📁 Categorization" if lang == "en" else "📁 Categorización",
     "🧠 Intelligence" if lang == "en" else "🧠 Inteligencia",
-    "📊 Analytics" if lang == "en" else "📊 Análisis"
+    "📊 Analytics" if lang == "en" else "📊 Análisis",
+    "🤖 AI Report" if lang == "en" else "🤖 Reporte IA"
 ])
 
 # TAB 1: Upload CSV
@@ -919,3 +920,165 @@ with tab4:
             fig_scatter = SEOVisualizations.volume_vs_traffic_scatter(df)
             if fig_scatter:
                 st.plotly_chart(fig_scatter, use_container_width=True)
+
+# TAB 5: AI Report
+with tab5:
+    st.header("🤖 AI Analysis Report" if lang == "en" else "🤖 Reporte de Análisis IA")
+    
+    if st.session_state.tier != 'premium':
+        st.warning("⭐ Premium feature. Switch to Premium tier to unlock." if lang == "en" else "⭐ Función Premium. Cambia a tier Premium para desbloquear.")
+    elif st.session_state.df_processed is None:
+        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
+    else:
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>{"🤖 AI-Powered Strategic Analysis" if lang == "en" else "🤖 Análisis Estratégico con IA"}</strong><br>
+            {"Claude AI will analyze all your data and provide:" if lang == "en" else "Claude IA analizará todos tus datos y proporcionará:"}<br>
+            {"• Executive summary of findings" if lang == "en" else "• Resumen ejecutivo de hallazgos"}<br>
+            {"• Prioritized action plan" if lang == "en" else "• Plan de acción priorizado"}<br>
+            {"• Quick wins vs long-term strategies" if lang == "en" else "• Quick wins vs estrategias a largo plazo"}<br>
+            {"• Competitive positioning insights" if lang == "en" else "• Insights de posicionamiento competitivo"}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # API Key input
+        api_key = st.text_input(
+            "Anthropic API Key (Claude):" if lang == "en" else "Clave API de Anthropic (Claude):",
+            type="password",
+            key='ai_report_api_key',
+            help="Required for AI analysis" if lang == "en" else "Requerido para análisis IA"
+        )
+        
+        if not api_key:
+            st.info("💡 Enter your Anthropic API key above to generate the AI report" if lang == "en" else "💡 Ingresa tu API key de Anthropic arriba para generar el reporte IA")
+        else:
+            if st.button("🚀 Generate AI Report" if lang == "en" else "🚀 Generar Reporte IA", type="primary", use_container_width=True):
+                with st.spinner("🤖 AI analyzing all data... This may take 1-2 minutes" if lang == "en" else "🤖 IA analizando todos los datos... Puede tomar 1-2 minutos"):
+                    try:
+                        # Prepare data summary for AI
+                        df = st.session_state.df_processed
+                        
+                        # Get domains
+                        if 'is_client' in df.columns:
+                            client_domain = df[df['is_client'] == True]['domain'].iloc[0] if len(df[df['is_client'] == True]) > 0 else 'Unknown'
+                            competitor_domains = df[df['is_client'] == False]['domain'].unique().tolist()
+                        else:
+                            client_domain = df['domain'].iloc[0] if 'domain' in df.columns else 'Unknown'
+                            competitor_domains = []
+                        
+                        # Run intelligence analysis
+                        cannibalization = SEOIntelligence.detect_cannibalization(df)
+                        gaps = SEOIntelligence.detect_content_gaps(df)
+                        zones = SEOIntelligence.classify_competitive_zones(df, 100)
+                        
+                        # Get stats
+                        cannibal_stats = SEOIntelligence.get_cannibalization_stats(cannibalization)
+                        gaps_stats = SEOIntelligence.get_content_gaps_stats(gaps)
+                        zones_stats = SEOIntelligence.get_competitive_zones_stats(zones)
+                        
+                        # Category stats if available
+                        category_stats = ""
+                        if 'category' in df.columns:
+                            cat_summary = df.groupby('category').agg({
+                                'keyword': 'count',
+                                'traffic': 'sum'
+                            }).sort_values('traffic', ascending=False).head(10)
+                            category_stats = cat_summary.to_string()
+                        
+                        # Top keywords
+                        top_kw = df.nlargest(20, 'traffic')[['keyword', 'traffic', 'url']].to_string()
+                        
+                        # Build prompt for AI
+                        prompt = f"""You are a Senior SEO Strategist analyzing keyword data for {client_domain}.
+
+**PROJECT OVERVIEW:**
+- Your Domain: {client_domain}
+- Competitors: {', '.join(competitor_domains) if competitor_domains else 'None'}
+- Total Keywords: {len(df):,}
+- Total Traffic: {df['traffic'].sum():,.0f}
+- Unique URLs: {df['url'].nunique():,}
+
+**CANNIBALIZATION ANALYSIS:**
+- Total Cannibalized Keywords: {cannibal_stats['total_cannibal_keywords']}
+- Critical Issues (Top 3): {cannibal_stats['critical_count']}
+- Warnings (Top 10): {cannibal_stats['warning_count']}
+- Minor (Page 2+): {cannibal_stats['minor_count']}
+
+**CONTENT GAPS ANALYSIS:**
+- Gap Keywords: {gaps_stats['total_gap_keywords']:,}
+- High Volume Gaps (>100): {gaps_stats['high_volume_gaps']:,}
+- Total Opportunity Volume: {gaps_stats['total_opportunity_volume']:,}
+
+**COMPETITIVE ZONES:**
+- 🟢 Dominio (Only You): {zones_stats['dominio_count']:,}
+- 🔴 Guerra (Direct Battle): {zones_stats['guerra_count']:,}
+- 🟡 QuickWin (Easy Wins): {zones_stats['quickwin_count']:,}
+- 🟣 Gap (High Investment): {zones_stats['gap_count']:,}
+
+**TOP 20 KEYWORDS BY TRAFFIC:**
+{top_kw}
+
+**CATEGORY DISTRIBUTION:**
+{category_stats if category_stats else 'Not categorized yet'}
+
+**YOUR TASK:**
+Provide a comprehensive SEO strategy report in Spanish with:
+
+1. **📊 Resumen Ejecutivo** (3-4 puntos clave, máximo impacto)
+
+2. **🚨 Problemas Críticos** (issues que están costando tráfico AHORA)
+   - Lista con impacto estimado en tráfico/revenue
+   - Prioridad: CRÍTICO / ALTO / MEDIO
+
+3. **⚡ Quick Wins** (acciones de 0-2 semanas, alto ROI)
+   - Paso a paso concreto
+   - Impacto esperado
+   - Esfuerzo estimado (horas/días)
+
+4. **📈 Estrategia a Medio Plazo** (1-3 meses)
+   - Iniciativas estructuradas
+   - Recursos necesarios
+   - KPIs a seguir
+
+5. **🎯 Priorización Final**
+   - Top 5 acciones en orden de impacto
+   - Cada una con: QUÉ hacer, POR QUÉ, CUÁNDO, y RESULTADO esperado
+
+**IMPORTANTE:**
+- Sé específico y accionable (no genérico)
+- Usa datos reales del análisis
+- Prioriza por ROI (impacto vs esfuerzo)
+- Formato claro con emojis y estructura markdown
+- Incluye números concretos de oportunidad"""
+
+                        # Call Claude API
+                        import anthropic
+                        
+                        client = anthropic.Anthropic(api_key=api_key)
+                        
+                        message = client.messages.create(
+                            model="claude-sonnet-4-20250514",
+                            max_tokens=4000,
+                            messages=[
+                                {"role": "user", "content": prompt}
+                            ]
+                        )
+                        
+                        ai_report = message.content[0].text
+                        
+                        # Display report
+                        st.markdown("---")
+                        st.markdown("## 📋 AI Strategic Report" if lang == "en" else "## 📋 Reporte Estratégico IA")
+                        st.markdown(ai_report)
+                        
+                        # Download button
+                        st.markdown("---")
+                        st.download_button(
+                            label="📥 Download Report" if lang == "en" else "📥 Descargar Reporte",
+                            data=ai_report,
+                            file_name=f"ai_seo_report_{client_domain}.md",
+                            mime="text/markdown"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error generating AI report: {str(e)}" if lang == "en" else f"❌ Error generando reporte IA: {str(e)}")
