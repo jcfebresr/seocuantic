@@ -36,20 +36,20 @@ class SEOIntelligence:
         
         # Dynamic aggregation dict (in case columns are missing)
         agg_dict = {
-            'url': ['count', lambda x: ' | '.join(x.astype(str).unique())],
+            'url': ['count', lambda x: '\n'.join(x.astype(str).unique())],  # Newline separated URLs
             'traffic': 'sum'
         }
         
         # If position exists, save it for severity calculation
         if 'position' in df_client.columns:
             agg_dict['position'] = [
-                lambda x: ' | '.join([str(int(p)) if pd.notna(p) else '-' for p in x]),  # For display
+                lambda x: '\n'.join([str(int(p)) if pd.notna(p) else '-' for p in x]),  # For display (newline)
                 lambda x: list(x)  # For internal logic
             ]
         
         # If category exists, show it to detect "Intent Mismatch"
         if 'category' in df_client.columns:
-            agg_dict['category'] = lambda x: ' | '.join(x.fillna('Unknown').astype(str))
+            agg_dict['category'] = lambda x: '\n'.join(x.fillna('Unknown').astype(str))  # Newline separated
         
         # Group by keyword
         cannibalization = df_client.groupby('keyword').agg(agg_dict).reset_index()
