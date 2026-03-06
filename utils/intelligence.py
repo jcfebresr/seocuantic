@@ -43,13 +43,13 @@ class SEOIntelligence:
         # If position exists, save it for severity calculation
         if 'position' in df_client.columns:
             agg_dict['position'] = [
-                lambda x: '\n'.join([str(int(p)) if pd.notna(p) else '-' for p in x]),  # For display (newline)
+                lambda x: ' | '.join([str(int(p)) if pd.notna(p) else '-' for p in x]),  # For display
                 lambda x: list(x)  # For internal logic
             ]
         
         # If category exists, show it to detect "Intent Mismatch"
         if 'category' in df_client.columns:
-            agg_dict['category'] = lambda x: '\n'.join(x.fillna('Unknown').astype(str))  # Newline separated
+            agg_dict['category'] = lambda x: ' | '.join(x.fillna('Unknown').astype(str))
         
         # Group by keyword
         cannibalization = df_client.groupby('keyword').agg(agg_dict).reset_index()
