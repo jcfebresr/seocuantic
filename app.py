@@ -718,4 +718,72 @@ with tab3:
                     )
         
         st.markdown("---")
-        st.info("🚧 More features coming: Competitive Zones" if lang == "en" else "🚧 Más funciones próximamente: Zonas Competitivas")
+        
+        # Feature 3: Competitive Zones
+        st.subheader("🗺️ Competitive Zones" if lang == "en" else "🗺️ Zonas Competitivas")
+        
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>{"💡 What are Competitive Zones?" if lang == "en" else "💡 ¿Qué son Zonas Competitivas?"}</strong><br>
+            {"🟢 Dominio: Only YOU rank (protect your territory)" if lang == "en" else "🟢 Dominio: Solo TÚ rankeas (protege tu territorio)"}<br>
+            {"🔴 Guerra: YOU + competitors rank (direct battle)" if lang == "en" else "🔴 Guerra: TÚ + competidores rankean (batalla directa)"}<br>
+            {"🟡 QuickWin: Only competitors, low volume (easy to capture)" if lang == "en" else "🟡 QuickWin: Solo competidores, volumen bajo (fácil de capturar)"}<br>
+            {"🟣 Gap: Only competitors, high volume (difficult)" if lang == "en" else "🟣 Gap: Solo competidores, volumen alto (difícil)"}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Quick Win threshold selector
+        quick_win_threshold = st.slider(
+            "QuickWin threshold (volume)" if lang == "en" else "Umbral QuickWin (volumen)",
+            min_value=50,
+            max_value=500,
+            value=100,
+            step=50,
+            help="Keywords below this volume = QuickWin, above = Gap" if lang == "en" else "Keywords debajo de este volumen = QuickWin, arriba = Gap"
+        )
+        
+        if st.button("🚀 Classify Zones" if lang == "en" else "🚀 Clasificar Zonas", type="primary", key="zones_btn"):
+            with st.spinner("Classifying..." if lang == "en" else "Clasificando..."):
+                zones = SEOIntelligence.classify_competitive_zones(df, quick_win_threshold)
+                
+                if len(zones) == 0:
+                    st.warning("⚠️ No data to classify" if lang == "en" else "⚠️ No hay datos para clasificar")
+                else:
+                    stats = SEOIntelligence.get_competitive_zones_stats(zones)
+                    
+                    # Metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("🟢 Dominio", stats['dominio_count'])
+                    with col2:
+                        st.metric("🔴 Guerra", stats['guerra_count'])
+                    with col3:
+                        st.metric("🟡 QuickWin", stats['quickwin_count'])
+                    with col4:
+                        st.metric("🟣 Gap", stats['gap_count'])
+                    
+                    st.markdown("---")
+                    
+                    # Table
+                    st.markdown("### 📋 Competitive Zone Classification" if lang == "en" else "### 📋 Clasificación de Zonas Competitivas")
+                    
+                    # Build display columns
+                    display_cols = ['zone', 'keyword']
+                    
+                    if 'volume' in zones.columns:
+                        display_cols.append('volume')
+                    if 'kd' in zones.columns:
+                        display_cols.append('kd')
+                    
+                    display_cols.extend(['your_position', 'competitor_count', 'competitor_domains'])
+                    
+                    format_dict = {}
+                    if 'volume' in zones.columns:
+                        format_dict['volume'] = '{:,.0f}'
+                    
+                    st.dataframe(
+                        zones[display_cols].style.format(format_dict),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
