@@ -220,7 +220,6 @@ class URLCategorizer:
                                 if 'error' in error_data and 'message' in error_data['error']:
                                     msg = error_data['error']['message']
                                     # Buscar patrón: "Please try again in X.XXs"
-                                    import re
                                     match = re.search(r'try again in ([\d.]+)s', msg)
                                     if match:
                                         wait_time = float(match.group(1)) + 2  # +2s buffer
