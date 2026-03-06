@@ -1,105 +1,91 @@
-"""
-URL Categorization
-Free: Pattern matching
-Premium: AI with Claude API
-"""
-
 import pandas as pd
 import re
-from typing import Dict, List, Optional
+import json
+import requests
+from typing import Dict, List
 
 class URLCategorizer:
-    """Categorize URLs based on patterns or AI"""
+    """Categorize URLs based on fast pattern matching or Universal AI"""
     
-    # Default categories and their URL patterns
     DEFAULT_PATTERNS = {
-        'Blog': ['/blog', '/post', '/article', '/news', '/insights', '/articulo'],
-        'Products': ['/product', '/shop', '/store', '/buy', '/cart', '/item'],
-        'Services': ['/service', '/solution', '/offer', '/servicio'],
-        'Tools': ['/tools', '/tool', '/herramienta', '/calculator', '/generator'],
-        'Home': ['/home', '/index', '/inicio'],
-        'About': ['/about', '/company', '/team', '/contact', '/contacto'],
-        'Docs': ['/doc', '/guide', '/help', '/support', '/faq', '/documentation'],
-        'Directory': ['/directory', '/directorio', '/listing'],
-        'Other': []
+        "Blog": ["/blog", "/post", "/article", "/news", "/insights", "/articulo"],
+        "Products": ["/product", "/shop", "/store", "/buy", "/cart", "/item"],
+        "Services": ["/service", "/solution", "/offer", "/servicio"],
+        "Tools": ["/tools", "/tool", "/herramienta", "/calculator", "/generator"],
+        "Directory": ["/directory", "/directorio", "/listing"],
+        "Docs": ["/doc", "/guide", "/help", "/support", "/faq", "/documentation"],
+        "About": ["/about", "/company", "/team", "/contact", "/contacto"],
+        "Home": ["/home", "/index", "inicio"],
+        "Other": []
     }
-    
+
     @staticmethod
-    def categorize_by_patterns(
-        df: pd.DataFrame,
-        custom_patterns: Dict[str, List[str]] = None
-    ) -> pd.DataFrame:
-        """
-        Categorize URLs using pattern matching (Free tier)
-        """
-        df = df.copy()
+    def validate_category_name(name: str) -> tuple:
+        if not name or not name.strip():
+            return False, "Category name cannot be empty"
+        name = name.strip()
+        if ' ' in name or '-' in name or '_' in name:
+            return False, "Category must be ONE word only"
+        if not name.isalnum():
+            return False, "Category must contain only letters and numbers"
+        if len(name) > 20:
+            return False, "Category name too long (max 20 characters)"
+        return True, ""
+
+    @staticmethod
+    def categorize_by_patterns(df: pd.DataFrame, custom_patterns: Dict[str, List[str]] = None) -> pd.DataFrame:
+        """Categorización ultra rápida basada en Regex/Contains (Vectorizada)"""
+        df_cat = df.copy()
+        df_cat['category'] = 'Other'
         
-        # Merge default + custom patterns
-        patterns = URLCategorizer.DEFAULT_PATTERNS.copy()
+        urls_lower = df_cat['url'].astype(str).str.lower()
+        if 'keyword' in df_cat.columns:
+            kw_lower = df_cat['keyword'].astype(str).str.lower()
+        else:
+            kw_lower = pd.Series("", index=df_cat.index)
+            
+        patterns_to_check = URLCategorizer.DEFAULT_PATTERNS.copy()
         if custom_patterns:
-            for category, custom_list in custom_patterns.items():
-                if category in patterns:
-                    patterns[category].extend(custom_list)
+            for cat, pats in custom_patterns.items():
+                if cat in patterns_to_check:
+                    patterns_to_check[cat].extend(pats)
                 else:
-                    patterns[category] = custom_list
-        
-        # Initialize category column
-        df['category'] = 'Other'
-        
-        # Vectorized categorization
-        url_lower = df['url'].astype(str).str.lower()
-        
-        # Special case: Home (exact domain match or domain/)
-        home_pattern = r'^https?://[^/]+/?$'
-        df.loc[url_lower.str.match(home_pattern), 'category'] = 'Home'
-        
-        # Pattern matching for other categories
-        for category, pattern_list in patterns.items():
-            if category in ['Other', 'Home']:
+                    patterns_to_check[cat] = pats
+
+        # 1. Lógica Especial para el "Home"
+        home_mask = urls_lower.str.match(r'^https?://[^/]+/?$')
+        df_cat.loc[home_mask & (df_cat['category'] == 'Other'), 'category'] = 'Home'
+
+        # 2. Regex masivo para el resto
+        for category, patterns in patterns_to_check.items():
+            if category == 'Other' or not patterns: 
                 continue
-            
-            if not pattern_list:
+                
+            valid_patterns = [p.lower().strip() for p in patterns if p.strip()]
+            if not valid_patterns:
                 continue
-            
-            # Create regex pattern from list
-            escaped_patterns = [re.escape(p) for p in pattern_list]
+                
+            escaped_patterns = [re.escape(p) for p in valid_patterns]
             regex_pattern = '|'.join(escaped_patterns)
             
-            # Match URLs that contain any of the patterns
-            mask = url_lower.str.contains(regex_pattern, regex=True, na=False)
+            url_match = urls_lower.str.contains(regex_pattern, regex=True, na=False)
+            kw_match = kw_lower.str.contains(regex_pattern, regex=True, na=False)
+            total_match = url_match | kw_match
             
-            # Only update rows that are still 'Other'
-            df.loc[mask & (df['category'] == 'Other'), 'category'] = category
-        
-        return df
-    
+            df_cat.loc[total_match & (df_cat['category'] == 'Other'), 'category'] = category
+
+        return df_cat
+
     @staticmethod
-    def categorize_with_ai(
-        df: pd.DataFrame,
-        api_key: str,
-        categories: List[str],
-        batch_size: int = 50
-    ) -> pd.DataFrame:
-        """
-        Categorize URLs using Claude AI (Premium tier)
-        """
-        try:
-            import anthropic
-        except ImportError:
-            raise ImportError("Install anthropic: pip install anthropic")
-        
+    def categorize_with_ai(df: pd.DataFrame, api_key: str, provider: str, categories: List[str], batch_size: int = 50) -> pd.DataFrame:
+        """Categorize URLs using any AI Provider via native HTTP requests (No SDK needed)"""
         df = df.copy()
-        client = anthropic.Anthropic(api_key=api_key)
-        
-        # Process in batches
         total_rows = len(df)
         df['category'] = 'Other'
         df['ai_confidence'] = 0.0
         
         for i in range(0, total_rows, batch_size):
             batch = df.iloc[i:i+batch_size]
-            
-            # Prepare batch data
             batch_data = []
             for idx, row in batch.iterrows():
                 batch_data.append({
@@ -108,94 +94,118 @@ class URLCategorizer:
                     'url': row.get('url', '')
                 })
             
-            # Create prompt
-            prompt = f"""Categorize these URLs into ONE of these categories: {', '.join(categories)}
-
-Rules:
-- Return ONLY the category name (one word)
-- Analyze both the URL path and keyword intent
-- Be consistent
-
-URLs to categorize:
-{chr(10).join([f"{i+1}. Keyword: '{d['keyword']}' | URL: {d['url']}" for i, d in enumerate(batch_data)])}
-
-Return format (one per line):
-1. CategoryName
-2. CategoryName
-...
-"""
+            # Prompt de sistema estructurado
+            prompt = f"Categorize these URLs into EXACTLY ONE of these categories: {', '.join(categories)}\n\n"
+            prompt += "Rules:\n- Return ONLY the category name\n- Analyze both URL path and keyword\n\nURLs:\n"
+            prompt += "\n".join([f"{j+1}. Keyword: '{d['keyword']}' | URL: {d['url']}" for j, d in enumerate(batch_data)])
+            prompt += "\n\nReturn ONLY a numbered list (e.g., \n1. Blog\n2. Products):"
             
             try:
-                response = client.messages.create(
-                    model="claude-sonnet-4-20250514",
-                    max_tokens=1000,
-                    messages=[{"role": "user", "content": prompt}]
-                )
+                result_text = ""
                 
-                # Parse response
-                result_text = response.content[0].text.strip()
+                # 1. GROQ API (Llama 3)
+                if provider == 'groq':
+                    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    data = {
+                        "model": "llama-3.3-70b-versatile",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0
+                    }
+                    r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=30)
+                    r.raise_for_status()
+                    result_text = r.json()['choices'][0]['message']['content']
+                
+                # 2. OPENAI API (GPT-4o-mini)
+                elif provider == 'openai':
+                    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    data = {
+                        "model": "gpt-4o-mini",
+                        "messages": [{"role": "user", "content": prompt}],
+                        "temperature": 0
+                    }
+                    r = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=30)
+                    r.raise_for_status()
+                    result_text = r.json()['choices'][0]['message']['content']
+                    
+                # 3. ANTHROPIC API (Claude 3.5 Sonnet) - Sin SDK
+                elif provider == 'anthropic':
+                    headers = {
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "content-type": "application/json"
+                    }
+                    data = {
+                        "model": "claude-3-5-sonnet-20241022",
+                        "max_tokens": 1024,
+                        "messages": [{"role": "user", "content": prompt}]
+                    }
+                    r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=data, timeout=30)
+                    r.raise_for_status()
+                    result_text = r.json()['content'][0]['text']
+                    
+                # 4. GOOGLE API (Gemini 1.5 Flash)
+                elif provider == 'google':
+                    headers = {"Content-Type": "application/json"}
+                    data = {"contents": [{"parts": [{"text": prompt}]}]}
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                    r = requests.post(url, headers=headers, json=data, timeout=30)
+                    r.raise_for_status()
+                    result_text = r.json()['candidates'][0]['content']['parts'][0]['text']
+                else:
+                    raise ValueError(f"Proveedor '{provider}' no reconocido. Usa: groq, openai, anthropic, google")
+
+                # Procesamiento de la respuesta (Parseo)
                 lines = [line.strip() for line in result_text.split('\n') if line.strip()]
                 
-                # Extract categories
                 for j, line in enumerate(lines):
-                    if j >= len(batch_data):
-                        break
-                    
-                    # Remove numbering (1., 2., etc)
-                    category = re.sub(r'^\d+\.\s*', '', line).strip()
-                    
-                    # Validate category
-                    if category not in categories:
-                        category = 'Other'
-                    
-                    idx = batch_data[j]['index']
-                    df.at[idx, 'category'] = category
-                    df.at[idx, 'ai_confidence'] = 0.9
-            
+                    # Solo procesamos líneas que empiecen con un número
+                    if not re.match(r'^\d+\.', line):
+                        continue
+                        
+                    # Extraer el número de índice y la categoría
+                    parts = re.split(r'^\d+\.\s*', line)
+                    if len(parts) > 1:
+                        category_raw = parts[1].strip().split(' ')[0]
+                        
+                        # Limpieza de puntuación
+                        category = re.sub(r'[^a-zA-Z0-9_áéíóúÁÉÍÓÚñÑ]', '', category_raw)
+                        
+                        # Mapeo estricto contra categorías válidas
+                        matched_cat = 'Other'
+                        for valid_cat in categories:
+                            if valid_cat.lower() == category.lower():
+                                matched_cat = valid_cat
+                                break
+                        
+                        # Encontrar índice original en el dataframe
+                        list_num_match = re.match(r'^(\d+)\.', line)
+                        if list_num_match:
+                            item_idx = int(list_num_match.group(1)) - 1
+                            if item_idx < len(batch_data):
+                                real_idx = batch_data[item_idx]['index']
+                                df.at[real_idx, 'category'] = matched_cat
+                                df.at[real_idx, 'ai_confidence'] = 0.95
+                                
+            except requests.exceptions.Timeout:
+                raise Exception(f"Timeout en API {provider} - batch {i}")
+            except requests.exceptions.HTTPError as err:
+                error_msg = err.response.text if hasattr(err.response, 'text') else str(err)
+                raise Exception(f"API Error ({provider}): {error_msg}")
             except Exception as e:
-                print(f"AI categorization error for batch {i}: {e}")
-        
+                raise Exception(f"Error procesando batch {i}: {str(e)}")
+                
         return df
-    
+
     @staticmethod
     def get_category_stats(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Get statistics per category
-        """
+        """Get statistics per category"""
         if 'category' not in df.columns:
             return pd.DataFrame()
+            
+        stats = df.groupby('category').agg(
+            keywords=('keyword', 'count'),
+            traffic=('traffic', 'sum'),
+            urls=('url', 'nunique')
+        ).reset_index()
         
-        stats = df.groupby('category').agg({
-            'keyword': 'count',
-            'traffic': 'sum',
-            'url': 'nunique'
-        }).reset_index()
-        
-        stats.columns = ['category', 'keywords', 'traffic', 'urls']
-        stats = stats.sort_values('traffic', ascending=False)
-        
-        return stats
-    
-    @staticmethod
-    def validate_category_name(name: str) -> tuple:
-        """
-        Validate category name (must be 1 word only)
-        """
-        if not name or not name.strip():
-            return False, "Category name cannot be empty"
-        
-        name = name.strip()
-        
-        # Check single word
-        if ' ' in name or '-' in name or '_' in name:
-            return False, "Category must be ONE word only (no spaces, hyphens, underscores)"
-        
-        # Check alphanumeric
-        if not name.isalnum():
-            return False, "Category must contain only letters and numbers"
-        
-        # Check length
-        if len(name) > 20:
-            return False, "Category name too long (max 20 characters)"
-        
-        return True, ""
+        return stats.sort_values('traffic', ascending=False)
