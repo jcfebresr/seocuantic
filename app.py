@@ -775,7 +775,7 @@ with tab3:
                     if 'kd' in zones.columns:
                         display_cols.append('kd')
                     
-                    display_cols.extend(['your_position', 'competitor_count', 'competitor_domains'])
+                    display_cols.extend(['your_position', 'your_url', 'competitor_count', 'competitor_domains', 'competitor_urls'])
                     
                     format_dict = {}
                     if 'volume' in zones.columns:
