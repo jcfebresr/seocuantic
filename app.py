@@ -418,9 +418,43 @@ with tab4:
             
             st.markdown("---")
         
-        # Chart 6: Category Comparison Stacked
+        # Chart 6: Category Comparison Grouped
         if 'category' in df.columns and 'domain' in df.columns:
-            st.subheader("📊 Category Traffic Comparison" if lang == "en" else "📊 Comparación de Tráfico por Categoría")
-            fig_stacked = SEOVisualizations.category_comparison_stacked(df)
-            if fig_stacked:
-                st.plotly_chart(fig_stacked, use_container_width=True)
+            st.subheader("📊 Keyword Count Comparison" if lang == "en" else "📊 Comparación de Cantidad de Keywords")
+            fig_grouped = SEOVisualizations.category_comparison_grouped(df)
+            if fig_grouped:
+                st.plotly_chart(fig_grouped, use_container_width=True)
+            
+            st.markdown("---")
+        
+        # Chart 7: Traffic Funnel
+        if 'position' in df.columns:
+            st.subheader("🎯 Traffic Funnel by Position" if lang == "en" else "🎯 Embudo de Tráfico por Posición")
+            
+            if 'domain' in df.columns and df['domain'].nunique() > 1:
+                funnel_domain = st.selectbox(
+                    "Select domain for funnel:" if lang == "en" else "Selecciona dominio para embudo:",
+                    options=['All'] + list(df['domain'].unique()),
+                    key='funnel_domain_selector'
+                )
+                
+                fig_funnel = SEOVisualizations.traffic_funnel(
+                    df,
+                    domain=None if funnel_domain == 'All' else funnel_domain
+                )
+            else:
+                fig_funnel = SEOVisualizations.traffic_funnel(df)
+            
+            if fig_funnel:
+                st.plotly_chart(fig_funnel, use_container_width=True)
+            
+            st.markdown("---")
+        
+        # Chart 8: Volume vs Traffic Scatter
+        if 'volume' in df.columns and 'traffic' in df.columns:
+            st.subheader("📈 Volume vs Traffic Analysis" if lang == "en" else "📈 Análisis Volumen vs Tráfico")
+            st.info("💡 Points above the diagonal = High efficiency. Points below = Underperforming." if lang == "en" else "💡 Puntos arriba de la diagonal = Alta eficiencia. Puntos abajo = Bajo rendimiento.")
+            
+            fig_scatter = SEOVisualizations.volume_vs_traffic_scatter(df)
+            if fig_scatter:
+                st.plotly_chart(fig_scatter, use_container_width=True)
