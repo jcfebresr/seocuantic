@@ -1,4 +1,171 @@
-import pandas as pd
+@staticmethod
+    def categorize_with_ai(df: pd.DataFrame, api_key: str, provider: str, categories: List[str], batch_size: int = 30, progress_callback=None) -> pd.DataFrame:
+        """
+        Categorize URLs using AI with AGGRESSIVE DEDUPLICATION.
+        Only categorizes unique URLs (ignoring keywords), then broadcasts back.
+        GROQ OPTIMIZATION: Small batches + parallel-safe delays.
+        """
+        
+        # PASO 1: Deduplicar SOLO por URL (no por keyword) - Máxima reducción
+        df_original = df.copy()
+        
+        # Extraer solo URLs únicas
+        df_unique = df_original.drop_duplicates(subset='url', keep='first').copy()
+        df_unique = df_unique.reset_index(drop=True)
+        
+        reduction = len(df_original) - len(df_unique)
+        if progress_callback:
+            progress_callback(f"📊 Deduplication: {len(df_original)} rows → {len(df_unique)} unique URLs ({reduction} duplicates removed)")
+        
+        # PASO 2: Categorizar solo las URLs únicas
+        total_rows = len(df_unique)
+        df_unique['category'] = 'Other'
+        df_unique['ai_confidence'] = 0.0
+        
+        # Ajustar batch_size para Groq
+        if provider == 'groq':
+            batch_size = min(batch_size, 25)  # Máximo 25 URLs por batch
+        
+        total_batches = (total_rows + batch_size - 1) // batch_size
+        
+        for batch_idx in range(0, total_rows, batch_size):
+            batch = df_unique.iloc[batch_idx:batch_idx+batch_size]
+            batch_data = []
+            for idx, row in batch.iterrows():
+                batch_data.append({
+                    'index': idx,
+                    'url': row.get('url', '')
+                })
+            
+            # Prompt MINIMALISTA (menos tokens = más rápido)
+            prompt = f"Categories: {', '.join(categories)}\nClassify:\n"
+            prompt += "\n".join([f"{j+1}. {d['url']}" for j, d in enumerate(batch_data)])
+            prompt += "\nFormat: 1. Category"
+            
+            # Sistema de reintentos con backoff inteligente
+            max_retries = 3
+            
+            for attempt in range(max_retries):
+                try:
+                    result_text = ""
+                    
+                    if provider == 'groq':
+                        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                        data = {
+                            "model": "llama-3.1-8b-instant",
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0,
+                            "max_tokens": 300
+                        }
+                        r = requests.post("https://api.groq.com/openai/v1/chat/completions", 
+                                        headers=headers, json=data, timeout=20)
+                        r.raise_for_status()
+                        result_text = r.json()['choices'][0]['message']['content']
+                    
+                    elif provider == 'openai':
+                        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                        data = {
+                            "model": "gpt-4o-mini",
+                            "messages": [{"role": "user", "content": prompt}],
+                            "temperature": 0,
+                            "max_tokens": 300
+                        }
+                        r = requests.post("https://api.openai.com/v1/chat/completions", 
+                                        headers=headers, json=data, timeout=20)
+                        r.raise_for_status()
+                        result_text = r.json()['choices'][0]['message']['content']
+                        
+                    elif provider == 'anthropic':
+                        headers = {
+                            "x-api-key": api_key,
+                            "anthropic-version": "2023-06-01",
+                            "content-type": "application/json"
+                        }
+                        data = {
+                            "model": "claude-3-5-haiku-20241022",  # Haiku es más rápido
+                            "max_tokens": 1024,
+                            "messages": [{"role": "user", "content": prompt}]
+                        }
+                        r = requests.post("https://api.anthropic.com/v1/messages", 
+                                        headers=headers, json=data, timeout=20)
+                        r.raise_for_status()
+                        result_text = r.json()['content'][0]['text']
+                        
+                    elif provider == 'google':
+                        headers = {"Content-Type": "application/json"}
+                        data = {"contents": [{"parts": [{"text": prompt}]}]}
+                        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+                        r = requests.post(url, headers=headers, json=data, timeout=20)
+                        r.raise_for_status()
+                        result_text = r.json()['candidates'][0]['content']['parts'][0]['text']
+                    else:
+                        raise ValueError(f"Provider '{provider}' not supported")
+
+                    # Parseo de resultados
+                    lines = [line.strip() for line in result_text.split('\n') if line.strip()]
+                    for line in lines:
+                        if not re.match(r'^\d+\.', line):
+                            continue
+                            
+                        parts = re.split(r'^\d+\.\s*', line)
+                        if len(parts) > 1:
+                            category_raw = parts[1].strip().split()[0]  # Primera palabra
+                            category = re.sub(r'[^a-zA-Z0-9áéíóúÁÉÍÓÚñÑ]', '', category_raw)
+                            
+                            matched_cat = 'Other'
+                            for valid_cat in categories:
+                                if valid_cat.lower() == category.lower():
+                                    matched_cat = valid_cat
+                                    break
+                            
+                            list_num_match = re.match(r'^(\d+)\.', line)
+                            if list_num_match:
+                                item_idx = int(list_num_match.group(1)) - 1
+                                if item_idx < len(batch_data):
+                                    real_idx = batch_data[item_idx]['index']
+                                    df_unique.at[real_idx, 'category'] = matched_cat
+                                    df_unique.at[real_idx, 'ai_confidence'] = 0.95
+                    
+                    # Éxito
+                    current_batch = (batch_idx // batch_size) + 1
+                    if progress_callback:
+                        progress_callback(f"✅ Batch {current_batch}/{total_batches} ({len(batch)} URLs)")
+                    break
+                                    
+                except requests.exceptions.HTTPError as err:
+                    if err.response.status_code == 429:  # Rate limit
+                        if attempt < max_retries - 1:
+                            # Extraer tiempo de espera del error
+                            try:
+                                error_data = err.response.json()
+                                msg = error_data.get('error', {}).get('message', '')
+                                match = re.search(r'try again in ([\d.]+)s', msg)
+                                wait_time = float(match.group(1)) + 1 if match else (3 * (2 ** attempt))
+                            except:
+                                wait_time = 3 * (2 ** attempt)
+                            
+                            if progress_callback:
+                                progress_callback(f"⏳ Rate limit. Waiting {wait_time:.1f}s...")
+                            time.sleep(wait_time)
+                            continue
+                    
+                    error_msg = err.response.text if hasattr(err.response, 'text') else str(err)
+                    raise Exception(f"API Error: {error_msg}")
+                    
+                except requests.exceptions.Timeout:
+                    if attempt < max_retries - 1:
+                        if progress_callback:
+                            progress_callback(f"⏳ Timeout. Retry {attempt + 1}/{max_retries}")
+                        time.sleep(2)
+                        continue
+                    raise Exception("API timeout")
+                    
+                except Exception as e:
+                    raise Exception(f"Error: {str(e)}")
+            
+            # Pausa mínima entre batches (solo para Groq)
+            if batch_idx + batch_size < total_rows and provider == 'groq':
+                time.sleep(1.5)  # Reducimport pandas as pd
 import re
 import json
 import requests
@@ -247,27 +414,19 @@ class URLCategorizer:
                 except Exception as e:
                     raise Exception(f"Error: {str(e)}")
             
-            # Pausa entre batches para evitar rate limits
-            if i + batch_size < total_rows:
-                # Groq: pausa más larga para respetar 6K TPM (aprox 100 tokens/segundo)
-                if provider == 'groq':
-                    time.sleep(3)  # Pausa de 3s entre batches
-                else:
-                    time.sleep(1)
+            # Pausa mínima entre batches (solo para Groq)
+            if batch_idx + batch_size < total_rows and provider == 'groq':
+                time.sleep(1.5)  # Reducido de 3s a 1.5s
         
         # PASO 3: Broadcast categories de vuelta al dataframe original
-        # Crear diccionario de mapeo: _dedup_key -> category
-        category_map = df_unique.set_index('_dedup_key')['category'].to_dict()
-        confidence_map = df_unique.set_index('_dedup_key')['ai_confidence'].to_dict()
+        url_to_category = df_unique.set_index('url')['category'].to_dict()
+        url_to_confidence = df_unique.set_index('url')['ai_confidence'].to_dict()
         
-        # Aplicar al dataframe original
-        df_original['category'] = df_original['_dedup_key'].map(category_map).fillna('Other')
-        df_original['ai_confidence'] = df_original['_dedup_key'].map(confidence_map).fillna(0.0)
+        df_original['category'] = df_original['url'].map(url_to_category).fillna('Other')
+        df_original['ai_confidence'] = df_original['url'].map(url_to_confidence).fillna(0.0)
         
-        # Limpiar columna temporal
-        df_original = df_original.drop(columns=['_dedup_key'])
-        
-        print(f"🎯 Categorization complete: {len(df_original)} rows categorized")
+        if progress_callback:
+            progress_callback(f"🎯 Complete: {len(df_unique)} unique URLs → {len(df_original)} total rows")
         
         return df_original
 
