@@ -364,15 +364,26 @@ class SEOIntelligence:
         
         result['your_position'] = result['keyword'].apply(get_your_position)
         
-        # Add competitor count and domains
+        # Add your URL
+        def get_your_url(keyword):
+            client_data = df[(df['keyword'] == keyword) & (df['is_client'] == True)]
+            if len(client_data) > 0:
+                urls = client_data['url'].unique()
+                return ' | '.join(urls) if len(urls) > 0 else '-'
+            return '-'
+        
+        result['your_url'] = result['keyword'].apply(get_your_url)
+        
+        # Add competitor count, domains and URLs
         def get_competitor_info(keyword):
             comp_data = df[(df['keyword'] == keyword) & (df['is_client'] == False)]
             if len(comp_data) > 0:
                 domains = comp_data['domain'].unique()
-                return len(domains), ' | '.join(domains)
-            return 0, '-'
+                urls = comp_data['url'].unique()
+                return len(domains), ' | '.join(domains), ' | '.join(urls)
+            return 0, '-', '-'
         
-        result[['competitor_count', 'competitor_domains']] = result['keyword'].apply(
+        result[['competitor_count', 'competitor_domains', 'competitor_urls']] = result['keyword'].apply(
             lambda k: pd.Series(get_competitor_info(k))
         )
         
