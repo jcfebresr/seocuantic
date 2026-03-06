@@ -79,8 +79,6 @@ if 'df_categorized' not in st.session_state:
 
 # Sidebar
 with st.sidebar:
-    st.image("https://via.placeholder.com/200x60/8B5CF6/FFFFFF?text=SEOcuantic", use_container_width=True)
-    
     # Language toggle
     col1, col2 = st.columns(2)
     with col1:
