@@ -1,533 +1,186 @@
-import streamlit as st
+"""
+URL Categorization
+Free: Pattern matching
+Premium: AI with Claude API
+"""
+
 import pandas as pd
-import chardet
-import io
-from utils.source_detector import detect_source_and_map
-from utils.data_normalizer import normalize_data
-from utils.project_identifier import get_domain_stats
+import re
+from typing import Dict, List, Optional
 
-# Configuración de página
-st.set_page_config(
-    page_title="SEOcuantic Keyword Intelligence",
-    page_icon="🔮",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-# CSS personalizado
-st.markdown("""
-<style>
-    .stApp {
-        background-color: #0F172A;
-    }
-    .metric-card {
-        background-color: #1E293B;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #8B5CF6;
-    }
-    .success-box {
-        background-color: #10B98120;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #10B981;
-        margin: 1rem 0;
-    }
-    .warning-box {
-        background-color: #F59E0B20;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #F59E0B;
-        margin: 1rem 0;
-    }
-    .info-box {
-        background-color: #3B82F620;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        border-left: 4px solid #3B82F6;
-        margin: 1rem 0;
-    }
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 2rem;
-    }
-    .stTabs [data-baseweb="tab"] {
-        padding: 1rem 2rem;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# Inicializar session state
-if 'tier' not in st.session_state:
-    st.session_state.tier = 'free'
-if 'language' not in st.session_state:
-    st.session_state.language = 'en'
-if 'df_project' not in st.session_state:
-    st.session_state.df_project = None
-if 'df_competitors' not in st.session_state:
-    st.session_state.df_competitors = []
-if 'df_processed' not in st.session_state:
-    st.session_state.df_processed = None
-if 'categories' not in st.session_state:
-    st.session_state.categories = ['Blog', 'Products', 'Services', 'Home', 'About', 'Docs', 'Other']
-if 'custom_patterns' not in st.session_state:
-    st.session_state.custom_patterns = {}
-if 'df_categorized' not in st.session_state:
-    st.session_state.df_categorized = None
-
-# Sidebar
-with st.sidebar:
-    st.image("https://via.placeholder.com/200x60/8B5CF6/FFFFFF?text=SEOcuantic", use_container_width=True)
+class URLCategorizer:
+    """Categorize URLs based on patterns or AI"""
     
-    # Language toggle
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🇬🇧 EN", use_container_width=True):
-            st.session_state.language = 'en'
-            st.rerun()
-    with col2:
-        if st.button("🇪🇸 ES", use_container_width=True):
-            st.session_state.language = 'es'
-            st.rerun()
-            
-    lang = st.session_state.language
+    # Default categories and their URL patterns
+    DEFAULT_PATTERNS = {
+        'Blog': ['/blog', '/post', '/article', '/news', '/insights'],
+        'Products': ['/product', '/shop', '/store', '/buy', '/cart'],
+        'Services': ['/service', '/solution', '/offer'],
+        'Home': ['/', '/home', '/index'],
+        'About': ['/about', '/company', '/team', '/contact'],
+        'Docs': ['/doc', '/guide', '/help', '/support', '/faq'],
+        'Other': []
+    }
     
-    st.markdown("---")
-    
-    # Tier selector
-    st.subheader("💎 Plan" if lang == "en" else "💎 Plan")
-    tier = st.radio(
-        "Select tier:" if lang == "en" else "Selecciona tier:",
-        options=['free', 'premium'],
-        format_func=lambda x: f"{'🆓 Free' if x == 'free' else '⭐ Premium'}",
-        key='tier_selector',
-        label_visibility='collapsed'
-    )
-    st.session_state.tier = tier
-    
-    # Tier info
-    if tier == 'free':
-        st.info("**Free Tier**\n- Max 100 URLs\n- Max 2 competitors\n- Basic exports")
-    else:
-        st.success("**Premium Tier**\n- Unlimited URLs\n- Max 10 competitors\n- AI categorization\n- Advanced exports")
+    @staticmethod
+    def categorize_by_patterns(
+        df: pd.DataFrame,
+        custom_patterns: Dict[str, List[str]] = None
+    ) -> pd.DataFrame:
+        """
+        Categorize URLs using pattern matching (Free tier)
+        """
+        df = df.copy()
         
-    st.markdown("---")
-    
-    # Stats
-    if st.session_state.df_processed is not None:
-        st.subheader("📊 Stats" if lang == "en" else "📊 Estadísticas")
-        df = st.session_state.df_processed
+        # Merge default + custom patterns
+        patterns = URLCategorizer.DEFAULT_PATTERNS.copy()
+        if custom_patterns:
+            patterns.update(custom_patterns)
         
-        st.metric("Total Rows" if lang == "en" else "Filas Totales", f"{len(df):,}")
-        st.metric("Unique Keywords" if lang == "en" else "Keywords Únicas", f"{df['keyword'].nunique():,}")
-        st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", f"{df['domain'].nunique():,}")
-        st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df['traffic'].sum():,.0f}")
-
-# Main content
-lang = st.session_state.language
-
-st.title("🔮 SEOcuantic Keyword Intelligence")
-st.markdown("**v0.4.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.4.0** - Análisis SEO con IA")
-
-# Tabs
-tab1, tab2 = st.tabs([
-    "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
-    "📁 Categorization" if lang == "en" else "📁 Categorización"
-])
-
-# TAB 1: Upload CSV
-with tab1:
-    st.header("📤 Upload Data" if lang == "en" else "📤 Subir Datos")
-    
-    st.markdown(f"""
-    <div class="info-box">
-        <strong>{"ℹ️ Upload Strategy:" if lang == "en" else "ℹ️ Estrategia de Subida:"}</strong><br>
-        {"1. Upload YOUR project CSV first" if lang == "en" else "1. Sube el CSV de TU proyecto primero"}<br>
-        {"2. Then upload competitor CSVs (optional)" if lang == "en" else "2. Luego sube CSVs de competidores (opcional)"}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    # Sección 1: CSV del Proyecto
-    st.subheader("🏠 Your Project CSV" if lang == "en" else "🏠 CSV de Tu Proyecto")
-    
-    project_file = st.file_uploader(
-        "Upload your project keywords CSV" if lang == "en" else "Sube el CSV de keywords de tu proyecto",
-        type=['csv'],
-        key='project_uploader',
-        help="Main CSV with your website's keywords" if lang == "en" else "CSV principal con las keywords de tu sitio"
-    )
-    
-    if project_file is not None:
-        try:
-            raw_data = project_file.read()
-            detected = chardet.detect(raw_data)
-            encoding = detected['encoding']
+        def match_category(url: str) -> str:
+            if pd.isna(url) or not url:
+                return 'Other'
             
-            project_file.seek(0)
-            separators = [',', '\t', ';']
-            df_raw = None
+            url_lower = url.lower()
             
-            for sep in separators:
-                try:
-                    project_file.seek(0)
-                    df_raw = pd.read_csv(
-                        project_file,
-                        encoding=encoding,
-                        sep=sep,
-                        on_bad_lines='skip',
-                        engine='python'
-                    )
-                    if len(df_raw.columns) > 1:
-                        break
-                except:
+            # Try each category's patterns
+            for category, pattern_list in patterns.items():
+                if category == 'Other':
                     continue
+                    
+                for pattern in pattern_list:
+                    if pattern in url_lower:
+                        return category
             
-            if df_raw is not None and len(df_raw) > 0:
-                source, df_mapped = detect_source_and_map(df_raw)
-                
-                if df_mapped is not None:
-                    df_normalized = normalize_data(df_mapped)
-                    
-                    if st.session_state.tier == 'free' and len(df_normalized) > 100:
-                        st.warning(f"⚠️ Free tier: 100 URLs max. Trimmed." if lang == "en" else f"⚠️ Tier gratuito: máximo 100 URLs. Recortado.")
-                        df_normalized = df_normalized.head(100)
-                    
-                    if 'domain' in df_normalized.columns:
-                        df_normalized['is_client'] = True
-                    
-                    st.session_state.df_project = df_normalized
-                    st.success(f"✅ Project CSV loaded: {len(df_normalized)} rows" if lang == "en" else f"✅ CSV del proyecto cargado: {len(df_normalized)} filas")
-                    
-                    with st.expander("📋 Preview" if lang == "en" else "📋 Vista Previa"):
-                        st.dataframe(df_normalized.head(50), use_container_width=True)
+            return 'Other'
         
-        except Exception as e:
-            st.error(f"❌ Error loading project CSV" if lang == "en" else f"❌ Error cargando CSV del proyecto")
-    
-    st.markdown("---")
-    
-    # Sección 2: CSVs de Competidores
-    st.subheader("🎯 Competitor CSVs (Optional)" if lang == "en" else "🎯 CSVs de Competidores (Opcional)")
-    
-    tier = st.session_state.tier
-    max_competitors = 2 if tier == 'free' else 10
-    current_competitors = len(st.session_state.df_competitors)
-    
-    st.info(f"📊 {current_competitors}/{max_competitors} competitors loaded" if lang == "en" else f"📊 {current_competitors}/{max_competitors} competidores cargados")
-    
-    if current_competitors < max_competitors:
-        competitor_file = st.file_uploader(
-            f"Upload competitor CSV ({current_competitors + 1}/{max_competitors})" if lang == "en" else f"Sube CSV de competidor ({current_competitors + 1}/{max_competitors})",
-            type=['csv'],
-            key=f'competitor_uploader_{current_competitors}',
-            help="CSV with competitor keywords" if lang == "en" else "CSV con keywords de competidor"
-        )
+        df['category'] = df['url'].apply(match_category)
         
-        if competitor_file is not None:
+        return df
+    
+    @staticmethod
+    def categorize_with_ai(
+        df: pd.DataFrame,
+        api_key: str,
+        categories: List[str],
+        batch_size: int = 50
+    ) -> pd.DataFrame:
+        """
+        Categorize URLs using Claude AI (Premium tier)
+        """
+        try:
+            import anthropic
+        except ImportError:
+            raise ImportError("Install anthropic: pip install anthropic")
+        
+        df = df.copy()
+        client = anthropic.Anthropic(api_key=api_key)
+        
+        # Process in batches
+        total_rows = len(df)
+        df['category'] = 'Other'
+        df['ai_confidence'] = 0.0
+        
+        for i in range(0, total_rows, batch_size):
+            batch = df.iloc[i:i+batch_size]
+            
+            # Prepare batch data
+            batch_data = []
+            for idx, row in batch.iterrows():
+                batch_data.append({
+                    'index': idx,
+                    'keyword': row.get('keyword', ''),
+                    'url': row.get('url', '')
+                })
+            
+            # Create prompt
+            prompt = f"""Categorize these URLs into ONE of these categories: {', '.join(categories)}
+
+Rules:
+- Return ONLY the category name (one word)
+- Analyze both the URL path and keyword intent
+- Be consistent
+
+URLs to categorize:
+{chr(10).join([f"{i+1}. Keyword: '{d['keyword']}' | URL: {d['url']}" for i, d in enumerate(batch_data)])}
+
+Return format (one per line):
+1. CategoryName
+2. CategoryName
+...
+"""
+            
             try:
-                raw_data = competitor_file.read()
-                detected = chardet.detect(raw_data)
-                encoding = detected['encoding']
+                response = client.messages.create(
+                    model="claude-sonnet-4-20250514",
+                    max_tokens=1000,
+                    messages=[{"role": "user", "content": prompt}]
+                )
                 
-                competitor_file.seek(0)
-                separators = [',', '\t', ';']
-                df_raw = None
+                # Parse response
+                result_text = response.content[0].text.strip()
+                lines = [line.strip() for line in result_text.split('\n') if line.strip()]
                 
-                for sep in separators:
-                    try:
-                        competitor_file.seek(0)
-                        df_raw = pd.read_csv(
-                            competitor_file,
-                            encoding=encoding,
-                            sep=sep,
-                            on_bad_lines='skip',
-                            engine='python'
-                        )
-                        if len(df_raw.columns) > 1:
-                            break
-                    except:
-                        continue
-                
-                if df_raw is not None and len(df_raw) > 0:
-                    source, df_mapped = detect_source_and_map(df_raw)
+                # Extract categories
+                for j, line in enumerate(lines):
+                    if j >= len(batch_data):
+                        break
                     
-                    if df_mapped is not None:
-                        df_normalized = normalize_data(df_mapped)
-                        
-                        if 'domain' in df_normalized.columns:
-                            df_normalized['is_client'] = False
-                        
-                        st.session_state.df_competitors.append(df_normalized)
-                        st.success(f"✅ Competitor CSV loaded: {len(df_normalized)} rows" if lang == "en" else f"✅ CSV de competidor cargado: {len(df_normalized)} filas")
-                        st.rerun()
+                    # Remove numbering (1., 2., etc)
+                    category = re.sub(r'^\d+\.\s*', '', line).strip()
+                    
+                    # Validate category
+                    if category not in categories:
+                        category = 'Other'
+                    
+                    idx = batch_data[j]['index']
+                    df.at[idx, 'category'] = category
+                    df.at[idx, 'ai_confidence'] = 0.9
             
             except Exception as e:
-                st.error(f"❌ Error loading competitor CSV" if lang == "en" else f"❌ Error cargando CSV de competidor")
-    else:
-        st.warning(f"⚠️ Max competitors reached ({max_competitors})" if lang == "en" else f"⚠️ Máximo de competidores alcanzado ({max_competitors})")
+                print(f"AI categorization error for batch {i}: {e}")
+        
+        return df
     
-    if len(st.session_state.df_competitors) > 0:
-        st.markdown("#### Loaded Competitors:" if lang == "en" else "#### Competidores Cargados:")
-        for i, df_comp in enumerate(st.session_state.df_competitors):
-            col1, col2 = st.columns([4, 1])
-            with col1:
-                domains = df_comp['domain'].unique() if 'domain' in df_comp.columns else []
-                st.text(f"{i+1}. {', '.join(domains[:3])} ({len(df_comp)} rows)")
-            with col2:
-                if st.button("🗑️", key=f"remove_comp_{i}"):
-                    st.session_state.df_competitors.pop(i)
-                    st.rerun()
+    @staticmethod
+    def get_category_stats(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Get statistics per category
+        """
+        if 'category' not in df.columns:
+            return pd.DataFrame()
+        
+        stats = df.groupby('category').agg({
+            'keyword': 'count',
+            'traffic': 'sum',
+            'url': 'nunique'
+        }).reset_index()
+        
+        stats.columns = ['category', 'keywords', 'traffic', 'urls']
+        stats = stats.sort_values('traffic', ascending=False)
+        
+        return stats
     
-    st.markdown("---")
-    
-    if st.session_state.df_project is not None:
-        if st.button("🚀 Process All Data" if lang == "en" else "🚀 Procesar Todos los Datos", type="primary", use_container_width=True):
-            all_dfs = [st.session_state.df_project] + st.session_state.df_competitors
-            df_combined = pd.concat(all_dfs, ignore_index=True)
-            st.session_state.df_processed = df_combined
-            
-            st.success(f"✅ Data processed: {len(df_combined)} total rows" if lang == "en" else f"✅ Datos procesados: {len(df_combined)} filas totales")
-            st.balloons()
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Total Rows" if lang == "en" else "Filas", len(df_combined))
-            with col2:
-                st.metric("Unique Keywords" if lang == "en" else "Keywords Únicas", df_combined['keyword'].nunique())
-            with col3:
-                st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", df_combined['domain'].nunique())
-            with col4:
-                st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df_combined['traffic'].sum():,.0f}")
-    
-    if st.session_state.df_processed is not None:
-        st.markdown("---")
-        st.subheader("📊 Domain Statistics" if lang == "en" else "📊 Estadísticas por Dominio")
+    @staticmethod
+    def validate_category_name(name: str) -> tuple:
+        """
+        Validate category name (must be 1 word only)
+        """
+        if not name or not name.strip():
+            return False, "Category name cannot be empty"
         
-        df = st.session_state.df_processed
+        name = name.strip()
         
-        if 'domain' in df.columns:
-            domain_stats = get_domain_stats(df)
-            
-            if 'is_client' in df.columns:
-                project_domains = df[df['is_client'] == True]['domain'].unique()
-                
-                if len(project_domains) > 0:
-                    st.markdown(f"**🏠 Your Project:** {', '.join(project_domains)}")
-                
-                domain_stats['type'] = domain_stats['domain'].apply(
-                    lambda x: '🏠 Project' if x in project_domains else '🎯 Competitor'
-                )
-                
-                domain_stats = domain_stats[['type', 'domain', 'keywords', 'traffic', 'urls']]
-            
-            st.dataframe(
-                domain_stats.style.format({
-                    'traffic': '{:,.0f}',
-                    'keywords': '{:,.0f}',
-                    'urls': '{:,.0f}'
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-
-# TAB 2: Categorization
-with tab2:
-    st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
-    
-    if st.session_state.df_processed is None:
-        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
-    else:
-        from utils.categorizer import URLCategorizer
+        # Check single word
+        if ' ' in name or '-' in name or '_' in name:
+            return False, "Category must be ONE word only (no spaces, hyphens, underscores)"
         
-        df = st.session_state.df_processed
-        tier = st.session_state.tier
+        # Check alphanumeric
+        if not name.isalnum():
+            return False, "Category must contain only letters and numbers"
         
-        st.subheader("📂 Available Categories" if lang == "en" else "📂 Categorías Disponibles")
+        # Check length
+        if len(name) > 20:
+            return False, "Category name too long (max 20 characters)"
         
-        col1, col2 = st.columns([3, 1])
-        
-        with col1:
-            st.markdown(", ".join([f"`{cat}`" for cat in st.session_state.categories]))
-        
-        with col2:
-            with st.popover("➕ Add Category" if lang == "en" else "➕ Añadir Categoría"):
-                new_cat = st.text_input(
-                    "Category name (1 word):" if lang == "en" else "Nombre categoría (1 palabra):",
-                    max_chars=20,
-                    key='new_category_input'
-                )
-                
-                if st.button("Add" if lang == "en" else "Añadir", key='add_cat_btn'):
-                    is_valid, error_msg = URLCategorizer.validate_category_name(new_cat)
-                    
-                    if not is_valid:
-                        st.error(f"❌ {error_msg}")
-                    elif new_cat.capitalize() in st.session_state.categories:
-                        st.error("❌ Category already exists" if lang == "en" else "❌ Categoría ya existe")
-                    else:
-                        st.session_state.categories.append(new_cat.capitalize())
-                        st.session_state.custom_patterns[new_cat.capitalize()] = []
-                        st.success(f"✅ Added: {new_cat.capitalize()}")
-                        st.rerun()
-        
-        st.markdown("---")
-        
-        if tier == 'free':
-            st.subheader("🆓 Pattern-Based Categorization" if lang == "en" else "🆓 Categorización por Patrones")
-            st.info("💡 URLs are categorized by matching path patterns (e.g., /blog → Blog)" if lang == "en" else "💡 Las URLs se categorizan por patrones en la ruta (ej: /blog → Blog)")
-            
-            with st.expander("⚙️ Edit Patterns" if lang == "en" else "⚙️ Editar Patrones"):
-                for category in st.session_state.categories:
-                    default_patterns = URLCategorizer.DEFAULT_PATTERNS.get(category, [])
-                    custom = st.session_state.custom_patterns.get(category, [])
-                    
-                    all_patterns = default_patterns + custom
-                    
-                    patterns_text = st.text_input(
-                        f"{category} patterns (comma-separated):",
-                        value=", ".join(all_patterns),
-                        key=f'pattern_{category}'
-                    )
-                    
-                    new_patterns = [p.strip() for p in patterns_text.split(',') if p.strip()]
-                    st.session_state.custom_patterns[category] = [p for p in new_patterns if p not in default_patterns]
-            
-            if st.button("🚀 Categorize URLs" if lang == "en" else "🚀 Categorizar URLs", type="primary", use_container_width=True):
-                with st.spinner("Categorizing..." if lang == "en" else "Categorizando..."):
-                    df_categorized = URLCategorizer.categorize_by_patterns(
-                        df,
-                        custom_patterns=st.session_state.custom_patterns
-                    )
-                    
-                    st.session_state.df_categorized = df_categorized
-                    st.session_state.df_processed = df_categorized
-                    
-                    st.success(f"✅ Categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ {len(df_categorized)} URLs categorizadas")
-                    st.balloons()
-        
-        else:
-            st.subheader("⭐ AI-Powered Categorization" if lang == "en" else "⭐ Categorización con IA")
-            st.info("🤖 AI analyzes keywords + URLs for semantic categorization and intent detection" if lang == "en" else "🤖 La IA analiza keywords + URLs para categorización semántica y detección de intención")
-            
-            col_ai1, col_ai2 = st.columns([1, 2])
-            
-            with col_ai1:
-                ai_provider = st.selectbox(
-                    "Select AI Engine:" if lang == "en" else "Motor de IA:",
-                    options=["Groq (Fast & Free)", "OpenAI (GPT-4o)", "Anthropic (Claude 3.5)", "Google (Gemini)"],
-                    index=0
-                )
-            
-            provider_name = ai_provider.split(" ")[0]
-            
-            with col_ai2:
-                api_key = st.text_input(
-                    f"{provider_name} API Key:",
-                    type="password",
-                    help="Keys are processed entirely in your browser's memory and are never stored or logged." if lang == "en" else "Las claves se procesan en la memoria de tu navegador y NUNCA se almacenan ni registran."
-                )
-            
-            st.markdown(f"""
-            <div style='font-size: 0.85rem; color: #10B981; margin-top: -10px; margin-bottom: 20px;'>
-                🔒 <b>{'100% Secure & Private:' if lang == 'en' else '100% Seguro y Privado:'}</b> 
-                {'Your API Key is only used for this session and is never sent to our servers.' if lang == 'en' else 'Tu API Key solo se usa en esta sesión y nunca se envía a nuestros servidores.'}
-            </div>
-            """, unsafe_allow_html=True)
-            
-            method = st.radio(
-                "Method:" if lang == "en" else "Método:",
-                options=['patterns', 'ai'],
-                format_func=lambda x: "🔍 Patterns (Free)" if x == 'patterns' else "🤖 AI (Premium)",
-                horizontal=True
-            )
-            
-            if method == 'ai' and not api_key:
-                st.warning("⚠️ Enter API key to use AI categorization" if lang == "en" else "⚠️ Ingresa tu API key para usar categorización IA")
-            
-            if st.button("🚀 Categorize URLs" if lang == "en" else "🚀 Categorizar URLs", type="primary", use_container_width=True):
-                
-                if method == 'patterns':
-                    with st.spinner("Categorizing with patterns..." if lang == "en" else "Categorizando con patrones..."):
-                        df_categorized = URLCategorizer.categorize_by_patterns(
-                            df,
-                            custom_patterns=st.session_state.custom_patterns
-                        )
-                        
-                        st.session_state.df_categorized = df_categorized
-                        st.session_state.df_processed = df_categorized
-                        
-                        st.success(f"✅ Categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ {len(df_categorized)} URLs categorizadas")
-                
-                elif method == 'ai' and api_key:
-                    with st.spinner(f"Categorizing with {provider_name}... This may take a few minutes" if lang == "en" else f"Categorizando con {provider_name}... Esto puede tomar unos minutos"):
-                        try:
-                            df_categorized = URLCategorizer.categorize_with_ai(
-                                df,
-                                api_key=api_key,
-                                provider=provider_name.lower(),
-                                categories=st.session_state.categories,
-                                batch_size=50
-                            )
-                            
-                            st.session_state.df_categorized = df_categorized
-                            st.session_state.df_processed = df_categorized
-                            
-                            st.success(f"✅ AI categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ IA categorizó {len(df_categorized)} URLs")
-                            st.balloons()
-                        
-                        except Exception as e:
-                            st.error(f"❌ AI Error ({provider_name}): {str(e)}")
-        
-        # --- NUEVA VISUALIZACIÓN SEPARADA POR DOMINIOS ---
-        if st.session_state.df_categorized is not None:
-            st.markdown("---")
-            st.subheader("📊 Category Analysis by Domain" if lang == "en" else "📊 Análisis de Categorías por Dominio")
-            
-            df_cat = st.session_state.df_categorized
-            
-            if 'domain' in df_cat.columns:
-                domains = df_cat['domain'].unique()
-                
-                for domain in domains:
-                    df_domain = df_cat[df_cat['domain'] == domain]
-                    
-                    is_client = df_domain['is_client'].iloc[0] if 'is_client' in df_domain.columns else False
-                    icon = "🏠 Project:" if is_client else "🎯 Competitor:"
-                    
-                    st.markdown(f"### {icon} {domain}")
-                    
-                    category_stats = URLCategorizer.get_category_stats(df_domain)
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Total Categories" if lang == "en" else "Categorías Usadas", len(category_stats))
-                    with col2:
-                        top_cat = category_stats.iloc[0]['category'] if len(category_stats) > 0 else 'N/A'
-                        st.metric("Top Category" if lang == "en" else "Categoría Principal", top_cat)
-                    with col3:
-                        uncategorized = len(df_domain[df_domain['category'] == 'Other'])
-                        st.metric("Uncategorized (Other)" if lang == "en" else "Sin Categorizar (Other)", uncategorized)
-                    
-                    st.dataframe(
-                        category_stats.style.format({
-                            'traffic': '{:,.0f}',
-                            'keywords': '{:,.0f}',
-                            'urls': '{:,.0f}'
-                        }),
-                        use_container_width=True,
-                        hide_index=True
-                    )
-                    
-                    with st.expander(f"📋 Preview Categorized URLs: {domain}" if lang == "en" else f"📋 Vista Previa URLs: {domain}"):
-                        cols_to_show = ['category', 'keyword', 'url', 'traffic']
-                        if 'intent' in df_domain.columns:
-                            cols_to_show.extend(['intent', 'ai_confidence'])
-                            
-                        st.dataframe(
-                            df_domain[cols_to_show].head(100),
-                            use_container_width=True,
-                            hide_index=True
-                        )
-                    
-                    st.markdown("<br>", unsafe_allow_html=True)
-            else:
-                st.error("Error: 'domain' column not found in dataset." if lang == "en" else "Error: No se encontró la columna 'domain'.")
+        return True, ""
