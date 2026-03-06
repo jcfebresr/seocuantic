@@ -78,10 +78,11 @@ class URLCategorizer:
         return df_cat
 
     @staticmethod
-    def categorize_with_ai(df: pd.DataFrame, api_key: str, provider: str, categories: List[str], batch_size: int = 50) -> pd.DataFrame:
+    def categorize_with_ai(df: pd.DataFrame, api_key: str, provider: str, categories: List[str], batch_size: int = 20) -> pd.DataFrame:
         """
         Categorize URLs using AI with DEDUPLICATION optimization.
         Only categorizes unique URL+keyword combinations, then broadcasts back.
+        GROQ OPTIMIZATION: Reduced batch size + smart delays for 6K TPM limit.
         """
         
         # PASO 1: Deduplicar por (url, keyword) para enviar menos datos a la IA
@@ -101,6 +102,10 @@ class URLCategorizer:
         df_unique['category'] = 'Other'
         df_unique['ai_confidence'] = 0.0
         
+        # Ajustar batch_size para Groq (máximo 20 URLs por batch para no exceder tokens)
+        if provider == 'groq':
+            batch_size = min(batch_size, 20)
+        
         for i in range(0, total_rows, batch_size):
             batch = df_unique.iloc[i:i+batch_size]
             batch_data = []
@@ -111,13 +116,13 @@ class URLCategorizer:
                     'url': row.get('url', '')
                 })
             
-            prompt = f"Categorize these URLs into EXACTLY ONE of these categories: {', '.join(categories)}\n\n"
-            prompt += "Rules:\n- Return ONLY the category name\n- Analyze both URL path and keyword\n\nURLs:\n"
-            prompt += "\n".join([f"{j+1}. Keyword: '{d['keyword']}' | URL: {d['url']}" for j, d in enumerate(batch_data)])
-            prompt += "\n\nReturn ONLY a numbered list (e.g., \n1. Blog\n2. Products):"
+            # Prompt ULTRA-COMPACTO para ahorrar tokens
+            prompt = f"Categorize into: {', '.join(categories)}\n"
+            prompt += "\n".join([f"{j+1}. {d['url']}" for j, d in enumerate(batch_data)])
+            prompt += "\nReturn format: 1. CategoryName"
             
             # Sistema de reintentos
-            max_retries = 3
+            max_retries = 4
             retry_delay = 5
             
             for attempt in range(max_retries):
@@ -209,8 +214,24 @@ class URLCategorizer:
                 except requests.exceptions.HTTPError as err:
                     if err.response.status_code == 429:  # Rate limit
                         if attempt < max_retries - 1:
-                            wait_time = retry_delay * (2 ** attempt)
-                            print(f"⏳ Rate limit hit. Waiting {wait_time}s...")
+                            # Extraer tiempo de espera del mensaje de error si existe
+                            try:
+                                error_data = err.response.json()
+                                if 'error' in error_data and 'message' in error_data['error']:
+                                    msg = error_data['error']['message']
+                                    # Buscar patrón: "Please try again in X.XXs"
+                                    import re
+                                    match = re.search(r'try again in ([\d.]+)s', msg)
+                                    if match:
+                                        wait_time = float(match.group(1)) + 2  # +2s buffer
+                                    else:
+                                        wait_time = retry_delay * (2 ** attempt)
+                                else:
+                                    wait_time = retry_delay * (2 ** attempt)
+                            except:
+                                wait_time = retry_delay * (2 ** attempt)
+                            
+                            print(f"⏳ Rate limit hit. Waiting {wait_time:.1f}s...")
                             time.sleep(wait_time)
                             continue
                     
@@ -229,7 +250,11 @@ class URLCategorizer:
             
             # Pausa entre batches para evitar rate limits
             if i + batch_size < total_rows:
-                time.sleep(1)
+                # Groq: pausa más larga para respetar 6K TPM (aprox 100 tokens/segundo)
+                if provider == 'groq':
+                    time.sleep(3)  # Pausa de 3s entre batches
+                else:
+                    time.sleep(1)
         
         # PASO 3: Broadcast categories de vuelta al dataframe original
         # Crear diccionario de mapeo: _dedup_key -> category
