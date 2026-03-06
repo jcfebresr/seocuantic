@@ -11,7 +11,7 @@ from utils.project_identifier import get_domain_stats
 
 # Configuración de página
 st.set_page_config(
-    page_title="SEOcuantic Keyword Intelligence",
+    page_title="Keyword Intelligence",
     page_icon="🔮",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -127,7 +127,7 @@ with st.sidebar:
 # Main content
 lang = st.session_state.language
 
-st.title("🔮 SEOcuantic Keyword Intelligence")
+st.title("🔮 Keyword Intelligence")
 st.markdown("**v0.6.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.6.0** - Análisis SEO con IA")
 
 # Tabs
