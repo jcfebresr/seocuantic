@@ -793,6 +793,7 @@ with tab3:
                             height=300
                         )
                     else:
+                    else:
                         st.info("No keywords in this zone" if lang == "en" else "No hay keywords en esta zona")
 
 # TAB 4: Analytics & Visualizations
