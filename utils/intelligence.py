@@ -203,39 +203,51 @@ class SEOIntelligence:
         
         gaps = df_gaps.groupby('keyword').agg(agg_dict).reset_index()
         
-        # Flatten column names
-        col_names = ['keyword', 'competitor_count', 'competitor_domains', 'competitor_urls', 'competitor_traffic']
+        # Manually extract columns to avoid multi-level issues
+        result = pd.DataFrame()
+        result['keyword'] = gaps['keyword']
         
-        if 'volume' in df_gaps.columns:
-            col_names.insert(1, 'volume')  # Insert after keyword
-        if 'kd' in df_gaps.columns:
-            idx = 2 if 'volume' in df_gaps.columns else 1
-            col_names.insert(idx, 'kd')
-        if 'position' in df_gaps.columns:
-            col_names.append('best_competitor_position')
+        # Extract domain aggregations
+        if isinstance(gaps['domain'].iloc[0], tuple):
+            result['competitor_count'] = gaps['domain'].apply(lambda x: x[0] if isinstance(x, tuple) else x)
+            result['competitor_domains'] = gaps['domain'].apply(lambda x: x[1] if isinstance(x, tuple) else x)
+        else:
+            result['competitor_count'] = gaps[('domain', 'nunique')]
+            result['competitor_domains'] = gaps[('domain', '<lambda>')]
         
-        gaps.columns = col_names
+        result['competitor_urls'] = gaps['url']
+        result['competitor_traffic'] = gaps['traffic']
         
-        # Convert competitor_count to int (first to float to handle any edge cases)
-        gaps['competitor_count'] = pd.to_numeric(gaps['competitor_count'], errors='coerce').fillna(0).astype(int)
+        if 'volume' in gaps.columns:
+            result.insert(1, 'volume', gaps['volume'])
+        
+        if 'kd' in gaps.columns:
+            idx = 2 if 'volume' in result.columns else 1
+            result.insert(idx, 'kd', gaps['kd'])
+        
+        if 'position' in gaps.columns:
+            result['best_competitor_position'] = gaps['position']
+        
+        # Convert competitor_count to int
+        result['competitor_count'] = pd.to_numeric(result['competitor_count'], errors='coerce').fillna(0).astype(int)
         
         # Add "Your Position" column (always "Not Ranking" for gaps)
         # Insert after kd or volume
         insert_idx = 1
-        if 'volume' in gaps.columns:
+        if 'volume' in result.columns:
             insert_idx += 1
-        if 'kd' in gaps.columns:
+        if 'kd' in result.columns:
             insert_idx += 1
         
-        gaps.insert(insert_idx, 'your_position', 'Not Ranking')
+        result.insert(insert_idx, 'your_position', 'Not Ranking')
         
         # Sort by volume (high opportunity first)
-        if 'volume' in gaps.columns:
-            gaps = gaps.sort_values('volume', ascending=False)
+        if 'volume' in result.columns:
+            result = result.sort_values('volume', ascending=False)
         else:
-            gaps = gaps.sort_values('competitor_traffic', ascending=False)
+            result = result.sort_values('competitor_traffic', ascending=False)
         
-        return gaps
+        return result
     
     @staticmethod
     def get_content_gaps_stats(gaps_df: pd.DataFrame) -> Dict:
