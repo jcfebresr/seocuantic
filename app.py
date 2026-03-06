@@ -128,19 +128,29 @@ lang = st.session_state.language
 st.title("🔮 SEOcuantic Keyword Intelligence")
 st.markdown("**v0.6.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.6.0** - Análisis SEO con IA")
 
-# Tabs - SOLO 2 TABS POR AHORA PARA TESTEAR
-tab1, tab2 = st.tabs([
+# Tabs
+tab1, tab2, tab3 = st.tabs([
     "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
+    "📁 Categorization" if lang == "en" else "📁 Categorización",
     "📊 Analytics" if lang == "en" else "📊 Análisis"
 ])
 
 # TAB 1: Upload CSV (mantengo solo lo esencial)
 with tab1:
     st.header("📤 Upload Data" if lang == "en" else "📤 Subir Datos")
-    st.info("Tab 1 funcionando - resto de tabs comentados temporalmente")
+    st.info("Tab 1 funcionando - completar después")
 
-# TAB 2: Analytics
+# TAB 2: Categorization
 with tab2:
+    st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
+    
+    if st.session_state.df_processed is None:
+        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
+    else:
+        st.info("Categorization tab - por implementar completamente")
+
+# TAB 3: Analytics
+with tab3:
     st.header("📊 Analytics & Visualizations" if lang == "en" else "📊 Análisis y Visualizaciones")
     
     if st.session_state.df_processed is None:
