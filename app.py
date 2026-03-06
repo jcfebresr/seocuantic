@@ -653,4 +653,63 @@ with tab3:
                     )
         
         st.markdown("---")
-        st.info("🚧 More features coming: Content Gaps, Competitive Zones" if lang == "en" else "🚧 Más funciones próximamente: Content Gaps, Zonas Competitivas")
+        
+        # Feature 2: Content Gaps
+        st.subheader("🎯 Content Gaps Detection" if lang == "en" else "🎯 Detección de Brechas de Contenido")
+        
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>{"💡 What are Content Gaps?" if lang == "en" else "💡 ¿Qué son Brechas de Contenido?"}</strong><br>
+            {"Keywords that competitors rank for but YOU don't." if lang == "en" else "Keywords por las que rankean competidores pero TÚ no."}<br>
+            {"= Content opportunities to create new pages" if lang == "en" else "= Oportunidades para crear nuevo contenido"}
+        </div>
+        """, unsafe_allow_html=True)
+        
+        if st.button("🚀 Find Content Gaps" if lang == "en" else "🚀 Encontrar Brechas", type="primary", key="gaps_btn"):
+            with st.spinner("Analyzing..." if lang == "en" else "Analizando..."):
+                gaps = SEOIntelligence.detect_content_gaps(df)
+                
+                if len(gaps) == 0:
+                    st.success("✅ No content gaps! You're covering all competitor keywords." if lang == "en" else "✅ ¡Sin brechas! Cubres todas las keywords de competidores.")
+                else:
+                    stats = SEOIntelligence.get_content_gaps_stats(gaps)
+                    
+                    # Metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Gap Keywords" if lang == "en" else "Keywords Faltantes", stats['total_gap_keywords'])
+                    with col2:
+                        st.metric("High Volume (>100)" if lang == "en" else "Alto Volumen (>100)", stats['high_volume_gaps'])
+                    with col3:
+                        st.metric("Total Opportunity" if lang == "en" else "Oportunidad Total", f"{stats['total_opportunity_volume']:,}")
+                    with col4:
+                        st.metric("Avg Competitors" if lang == "en" else "Competidores Prom.", stats['avg_competitor_count'])
+                    
+                    st.markdown("---")
+                    
+                    # Table
+                    st.markdown("### 📋 Content Gap Opportunities" if lang == "en" else "### 📋 Oportunidades de Contenido")
+                    
+                    # Reorder columns for display
+                    display_cols = ['keyword', 'competitor_count', 'competitor_domains']
+                    
+                    if 'volume' in gaps.columns:
+                        display_cols.append('volume')
+                    if 'best_competitor_position' in gaps.columns:
+                        display_cols.append('best_competitor_position')
+                    
+                    display_cols.append('competitor_traffic')
+                    
+                    format_dict = {'competitor_traffic': '{:,.0f}'}
+                    if 'volume' in gaps.columns:
+                        format_dict['volume'] = '{:,.0f}'
+                    
+                    st.dataframe(
+                        gaps[display_cols].style.format(format_dict),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
+        
+        st.markdown("---")
+        st.info("🚧 More features coming: Competitive Zones" if lang == "en" else "🚧 Más funciones próximamente: Zonas Competitivas")
