@@ -1,293 +1,789 @@
-"""
-SEO Intelligence Analysis
-Cannibalization, Gaps, Competitive Zones
-"""
-
+import streamlit as st
 import pandas as pd
-import numpy as np
-from typing import Dict, List, Tuple
+import chardet
+import io
+from utils.source_detector import detect_source_and_map
+from utils.data_normalizer import normalize_data
+from utils.project_identifier import get_domain_stats
 
-class SEOIntelligence:
-    """SEO competitive intelligence tools"""
+# Configuración de página
+st.set_page_config(
+    page_title="SEOcuantic Keyword Intelligence",
+    page_icon="🔮",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# CSS personalizado
+st.markdown("""
+<style>
+    .stApp {
+        background-color: #0F172A;
+    }
+    .metric-card {
+        background-color: #1E293B;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #8B5CF6;
+    }
+    .success-box {
+        background-color: #10B98120;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #10B981;
+        margin: 1rem 0;
+    }
+    .warning-box {
+        background-color: #F59E0B20;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #F59E0B;
+        margin: 1rem 0;
+    }
+    .info-box {
+        background-color: #3B82F620;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        border-left: 4px solid #3B82F6;
+        margin: 1rem 0;
+    }
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 2rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        padding: 1rem 2rem;
+    }
+</style>
+""", unsafe_allow_html=True)
+
+# Inicializar session state
+if 'tier' not in st.session_state:
+    st.session_state.tier = 'free'
+if 'language' not in st.session_state:
+    st.session_state.language = 'en'
+if 'df_project' not in st.session_state:
+    st.session_state.df_project = None
+if 'df_competitors' not in st.session_state:
+    st.session_state.df_competitors = []
+if 'df_processed' not in st.session_state:
+    st.session_state.df_processed = None
+if 'categories' not in st.session_state:
+    st.session_state.categories = ['Blog', 'Products', 'Services', 'Tools', 'Home', 'About', 'Docs', 'Directory', 'Other']
+if 'custom_patterns' not in st.session_state:
+    st.session_state.custom_patterns = {}
+if 'df_categorized' not in st.session_state:
+    st.session_state.df_categorized = None
+
+# Sidebar
+with st.sidebar:
+    st.image("https://via.placeholder.com/200x60/8B5CF6/FFFFFF?text=SEOcuantic", use_container_width=True)
     
-    @staticmethod
-    def detect_cannibalization(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Detect keyword cannibalization (multiple URLs for same keyword)
-        Analyzes client's project and uses ranking position for severity.
+    # Language toggle
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🇬🇧 EN", use_container_width=True):
+            st.session_state.language = 'en'
+            st.rerun()
+    with col2:
+        if st.button("🇪🇸 ES", use_container_width=True):
+            st.session_state.language = 'es'
+            st.rerun()
+    
+    lang = st.session_state.language
+    
+    st.markdown("---")
+    
+    # Tier selector
+    st.subheader("💎 Plan" if lang == "en" else "💎 Plan")
+    tier = st.radio(
+        "Select tier:" if lang == "en" else "Selecciona tier:",
+        options=['free', 'premium'],
+        format_func=lambda x: f"{'🆓 Free' if x == 'free' else '⭐ Premium'}",
+        key='tier_selector',
+        label_visibility='collapsed'
+    )
+    st.session_state.tier = tier
+    
+    # Tier info
+    if tier == 'free':
+        st.info("**Free Tier**\n- Max 100 URLs\n- Max 2 competitors\n- Basic exports")
+    else:
+        st.success("**Premium Tier**\n- Unlimited URLs\n- Max 10 competitors\n- AI categorization\n- Intelligence Analysis\n- Advanced exports")
+    
+    st.markdown("---")
+    
+    # Stats
+    if st.session_state.df_processed is not None:
+        st.subheader("📊 Stats" if lang == "en" else "📊 Estadísticas")
+        df = st.session_state.df_processed
         
-        Severity Rules:
-        - 🔴 Critical: At least 1 URL in Top 3 (fighting for podium)
-        - 🟡 Warning: At least 1 URL in Top 10 (fighting on page 1)
-        - ⚪ Minor: All URLs in page 2+ (low priority)
-        
-        Returns:
-            DataFrame with: keyword, urls_count, urls_list, positions_list, 
-                          categories_list, severity, total_traffic
-        """
-        if 'is_client' not in df.columns:
-            return pd.DataFrame()
-        
-        # Filter only client URLs
-        df_client = df[df['is_client'] == True].copy()
-        
-        if len(df_client) == 0:
-            return pd.DataFrame()
-        
-        # Get client domain (assuming single project domain)
-        client_domain = df_client['domain'].iloc[0] if 'domain' in df_client.columns else 'Unknown'
-        
-        # Dynamic aggregation dict (in case columns are missing)
-        agg_dict = {
-            'url': ['count', lambda x: ' | '.join(x.astype(str).unique())],
-            'traffic': 'sum'
-        }
-        
-        # If position exists, save it for severity calculation
-        if 'position' in df_client.columns:
-            agg_dict['position'] = [
-                lambda x: ' | '.join([str(int(p)) if pd.notna(p) else '-' for p in x]),  # For display
-                lambda x: list(x)  # For internal logic
-            ]
-        
-        # If category exists, show it to detect "Intent Mismatch"
-        if 'category' in df_client.columns:
-            agg_dict['category'] = lambda x: ' | '.join(x.fillna('Unknown').astype(str))
-        
-        # Group by keyword
-        cannibalization = df_client.groupby('keyword').agg(agg_dict).reset_index()
-        
-        # Flatten multi-level column names
-        col_names = ['keyword', 'urls_count', 'urls_list', 'total_traffic']
-        if 'position' in df_client.columns:
-            col_names.extend(['positions_list', 'positions_raw'])
-        if 'category' in df_client.columns:
-            col_names.append('categories_list')
-        
-        cannibalization.columns = col_names
-        
-        # Filter only keywords with 2+ URLs
-        cannibalization = cannibalization[cannibalization['urls_count'] >= 2].copy()
-        
-        if len(cannibalization) == 0:
-            return pd.DataFrame()
-        
-        # Calculate severity based on POSITION (Premium Logic)
-        def calculate_severity(row):
-            if 'positions_raw' in row.index:
-                # Filter valid positions > 0
-                valid_positions = [p for p in row['positions_raw'] if pd.notna(p) and p > 0]
-                if not valid_positions:
-                    return '⚪ Minor'
-                
-                min_pos = min(valid_positions)
-                
-                if min_pos <= 3:
-                    return '🔴 Critical'  # At least 1 in Top 3 fighting
-                elif min_pos <= 10:
-                    return '🟡 Warning'   # At least 1 in page 1 fighting
-                else:
-                    return '⚪ Minor'     # Fighting in page 2+
-            else:
-                # Fallback if CSV has no position column
-                return '🟡 Warning' if row['urls_count'] >= 2 else '⚪ Minor'
-        
-        cannibalization['severity'] = cannibalization.apply(calculate_severity, axis=1)
-        
-        # Add client domain column
-        cannibalization.insert(0, 'your_domain', client_domain)
-        
-        # Add "Your Best Position" column
-        if 'positions_raw' in cannibalization.columns:
-            def get_best_position(positions_raw):
-                valid_positions = [p for p in positions_raw if pd.notna(p) and p > 0]
-                if not valid_positions:
-                    return 'Not Ranking'
-                return str(int(min(valid_positions)))
+        st.metric("Total Rows" if lang == "en" else "Filas Totales", f"{len(df):,}")
+        st.metric("Unique Keywords" if lang == "en" else "Keywords Únicas", f"{df['keyword'].nunique():,}")
+        st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", f"{df['domain'].nunique():,}")
+        st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df['traffic'].sum():,.0f}")
+
+# Main content
+lang = st.session_state.language
+
+st.title("🔮 SEOcuantic Keyword Intelligence")
+st.markdown("**v0.5.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.5.0** - Análisis SEO con IA")
+
+# Tabs
+tab1, tab2, tab3 = st.tabs([
+    "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
+    "📁 Categorization" if lang == "en" else "📁 Categorización",
+    "🧠 Intelligence" if lang == "en" else "🧠 Inteligencia"
+])
+
+# TAB 1: Upload CSV
+with tab1:
+    st.header("📤 Upload Data" if lang == "en" else "📤 Subir Datos")
+    
+    st.markdown(f"""
+    <div class="info-box">
+        <strong>{"ℹ️ Upload Strategy:" if lang == "en" else "ℹ️ Estrategia de Subida:"}</strong><br>
+        {"1. Upload YOUR project CSV first" if lang == "en" else "1. Sube el CSV de TU proyecto primero"}<br>
+        {"2. Then upload competitor CSVs (optional)" if lang == "en" else "2. Luego sube CSVs de competidores (opcional)"}
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Sección 1: CSV del Proyecto
+    st.subheader("🏠 Your Project CSV" if lang == "en" else "🏠 CSV de Tu Proyecto")
+    
+    project_file = st.file_uploader(
+        "Upload your project keywords CSV" if lang == "en" else "Sube el CSV de keywords de tu proyecto",
+        type=['csv'],
+        key='project_uploader',
+        help="Main CSV with your website's keywords" if lang == "en" else "CSV principal con las keywords de tu sitio"
+    )
+    
+    if project_file is not None:
+        try:
+            # Detectar encoding
+            raw_data = project_file.read()
+            detected = chardet.detect(raw_data)
+            encoding = detected['encoding']
             
-            cannibalization.insert(1, 'your_best_position', cannibalization['positions_raw'].apply(get_best_position))
+            # Leer CSV
+            project_file.seek(0)
+            
+            # Intentar leer con diferentes separadores
+            separators = [',', '\t', ';']
+            df_raw = None
+            
+            for sep in separators:
+                try:
+                    project_file.seek(0)
+                    df_raw = pd.read_csv(
+                        project_file,
+                        encoding=encoding,
+                        sep=sep,
+                        on_bad_lines='skip',
+                        engine='python'
+                    )
+                    if len(df_raw.columns) > 1:
+                        break
+                except:
+                    continue
+            
+            if df_raw is not None and len(df_raw) > 0:
+                # Auto-detectar fuente y normalizar
+                source, df_mapped = detect_source_and_map(df_raw)
+                
+                if df_mapped is not None:
+                    df_normalized = normalize_data(df_mapped)
+                    
+                    # Validar tier limits
+                    if st.session_state.tier == 'free' and len(df_normalized) > 100:
+                        st.warning(f"⚠️ Free tier: 100 URLs max. Trimmed." if lang == "en" else f"⚠️ Tier gratuito: máximo 100 URLs. Recortado.")
+                        df_normalized = df_normalized.head(100)
+                    
+                    # Marcar como proyecto
+                    if 'domain' in df_normalized.columns:
+                        df_normalized['is_client'] = True
+                    
+                    st.session_state.df_project = df_normalized
+                    
+                    st.success(f"✅ Project CSV loaded: {len(df_normalized)} rows" if lang == "en" else f"✅ CSV del proyecto cargado: {len(df_normalized)} filas")
+                    
+                    # Preview
+                    with st.expander("📋 Preview" if lang == "en" else "📋 Vista Previa"):
+                        st.dataframe(df_normalized.head(50), use_container_width=True)
+        
+        except Exception as e:
+            st.error(f"❌ Error loading project CSV" if lang == "en" else f"❌ Error cargando CSV del proyecto")
+    
+    st.markdown("---")
+    
+    # Sección 2: CSVs de Competidores
+    st.subheader("🎯 Competitor CSVs (Optional)" if lang == "en" else "🎯 CSVs de Competidores (Opcional)")
+    
+    # Tier limits
+    tier = st.session_state.tier
+    max_competitors = 2 if tier == 'free' else 10
+    current_competitors = len(st.session_state.df_competitors)
+    
+    st.info(f"📊 {current_competitors}/{max_competitors} competitors loaded" if lang == "en" else f"📊 {current_competitors}/{max_competitors} competidores cargados")
+    
+    if current_competitors < max_competitors:
+        competitor_file = st.file_uploader(
+            f"Upload competitor CSV ({current_competitors + 1}/{max_competitors})" if lang == "en" else f"Sube CSV de competidor ({current_competitors + 1}/{max_competitors})",
+            type=['csv'],
+            key=f'competitor_uploader_{current_competitors}',
+            help="CSV with competitor keywords" if lang == "en" else "CSV con keywords de competidor"
+        )
+        
+        if competitor_file is not None:
+            try:
+                # Detectar encoding
+                raw_data = competitor_file.read()
+                detected = chardet.detect(raw_data)
+                encoding = detected['encoding']
+                
+                # Leer CSV
+                competitor_file.seek(0)
+                
+                separators = [',', '\t', ';']
+                df_raw = None
+                
+                for sep in separators:
+                    try:
+                        competitor_file.seek(0)
+                        df_raw = pd.read_csv(
+                            competitor_file,
+                            encoding=encoding,
+                            sep=sep,
+                            on_bad_lines='skip',
+                            engine='python'
+                        )
+                        if len(df_raw.columns) > 1:
+                            break
+                    except:
+                        continue
+                
+                if df_raw is not None and len(df_raw) > 0:
+                    source, df_mapped = detect_source_and_map(df_raw)
+                    
+                    if df_mapped is not None:
+                        df_normalized = normalize_data(df_mapped)
+                        
+                        # Marcar como competidor
+                        if 'domain' in df_normalized.columns:
+                            df_normalized['is_client'] = False
+                        
+                        st.session_state.df_competitors.append(df_normalized)
+                        
+                        st.success(f"✅ Competitor CSV loaded: {len(df_normalized)} rows" if lang == "en" else f"✅ CSV de competidor cargado: {len(df_normalized)} filas")
+                        st.rerun()
+            
+            except Exception as e:
+                st.error(f"❌ Error loading competitor CSV" if lang == "en" else f"❌ Error cargando CSV de competidor")
+    else:
+        st.warning(f"⚠️ Max competitors reached ({max_competitors})" if lang == "en" else f"⚠️ Máximo de competidores alcanzado ({max_competitors})")
+    
+    # Mostrar competidores cargados
+    if len(st.session_state.df_competitors) > 0:
+        st.markdown("#### Loaded Competitors:" if lang == "en" else "#### Competidores Cargados:")
+        for i, df_comp in enumerate(st.session_state.df_competitors):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                domains = df_comp['domain'].unique() if 'domain' in df_comp.columns else []
+                st.text(f"{i+1}. {', '.join(domains[:3])} ({len(df_comp)} rows)")
+            with col2:
+                if st.button("🗑️", key=f"remove_comp_{i}"):
+                    st.session_state.df_competitors.pop(i)
+                    st.rerun()
+    
+    st.markdown("---")
+    
+    # Botón para combinar y procesar
+    if st.session_state.df_project is not None:
+        if st.button("🚀 Process All Data" if lang == "en" else "🚀 Procesar Todos los Datos", type="primary", use_container_width=True):
+            # Combinar todos los dataframes
+            all_dfs = [st.session_state.df_project] + st.session_state.df_competitors
+            df_combined = pd.concat(all_dfs, ignore_index=True)
+            
+            st.session_state.df_processed = df_combined
+            
+            st.success(f"✅ Data processed: {len(df_combined)} total rows" if lang == "en" else f"✅ Datos procesados: {len(df_combined)} filas totales")
+            st.balloons()
+            
+            # Metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Rows" if lang == "en" else "Filas", len(df_combined))
+            with col2:
+                st.metric("Unique Keywords" if lang == "en" else "Keywords Únicas", df_combined['keyword'].nunique())
+            with col3:
+                st.metric("Unique Domains" if lang == "en" else "Dominios Únicos", df_combined['domain'].nunique())
+            with col4:
+                st.metric("Total Traffic" if lang == "en" else "Tráfico Total", f"{df_combined['traffic'].sum():,.0f}")
+    
+    # Mostrar tabla de estadísticas por dominio si hay datos procesados
+    if st.session_state.df_processed is not None:
+        st.markdown("---")
+        st.subheader("📊 Domain Statistics" if lang == "en" else "📊 Estadísticas por Dominio")
+        
+        df = st.session_state.df_processed
+        
+        if 'domain' in df.columns:
+            domain_stats = get_domain_stats(df)
+            
+            # Separar proyecto vs competidores si existe is_client
+            if 'is_client' in df.columns:
+                # Identificar dominio del proyecto
+                project_domains = df[df['is_client'] == True]['domain'].unique()
+                
+                if len(project_domains) > 0:
+                    st.markdown(f"**🏠 Your Project:** {', '.join(project_domains)}")
+                
+                # Marcar en la tabla
+                domain_stats['type'] = domain_stats['domain'].apply(
+                    lambda x: '🏠 Project' if x in project_domains else '🎯 Competitor'
+                )
+                
+                # Reordenar columnas
+                domain_stats = domain_stats[['type', 'domain', 'keywords', 'traffic', 'urls']]
+            
+            st.dataframe(
+                domain_stats.style.format({
+                    'traffic': '{:,.0f}',
+                    'keywords': '{:,.0f}',
+                    'urls': '{:,.0f}'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+
+# TAB 2: Categorization
+with tab2:
+    st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
+    
+    if st.session_state.df_processed is None:
+        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
+    else:
+        from utils.categorizer import URLCategorizer
+        
+        df = st.session_state.df_processed
+        tier = st.session_state.tier
+        
+        # Mostrar categorías actuales
+        st.subheader("📂 Available Categories" if lang == "en" else "📂 Categorías Disponibles")
+        
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            st.markdown(", ".join([f"`{cat}`" for cat in st.session_state.categories]))
+        
+        with col2:
+            with st.popover("➕ Add Category" if lang == "en" else "➕ Añadir Categoría"):
+                new_cat = st.text_input(
+                    "Category name (1 word):" if lang == "en" else "Nombre categoría (1 palabra):",
+                    max_chars=20,
+                    key='new_category_input'
+                )
+                
+                if st.button("Add" if lang == "en" else "Añadir", key='add_cat_btn'):
+                    is_valid, error_msg = URLCategorizer.validate_category_name(new_cat)
+                    
+                    if not is_valid:
+                        st.error(f"❌ {error_msg}")
+                    elif new_cat.capitalize() in st.session_state.categories:
+                        st.error("❌ Category already exists" if lang == "en" else "❌ Categoría ya existe")
+                    else:
+                        st.session_state.categories.append(new_cat.capitalize())
+                        st.session_state.custom_patterns[new_cat.capitalize()] = []
+                        st.success(f"✅ Added: {new_cat.capitalize()}")
+                        st.rerun()
+        
+        st.markdown("---")
+        
+        # FREE TIER: Pattern-based categorization
+        if tier == 'free':
+            st.subheader("🆓 Pattern-Based Categorization" if lang == "en" else "🆓 Categorización por Patrones")
+            
+            st.info("💡 URLs are categorized by matching path patterns (e.g., /blog → Blog)" if lang == "en" else "💡 Las URLs se categorizan por patrones en la ruta (ej: /blog → Blog)")
+            
+            # Show/edit patterns
+            with st.expander("⚙️ Edit Patterns" if lang == "en" else "⚙️ Editar Patrones"):
+                for category in st.session_state.categories:
+                    default_patterns = URLCategorizer.DEFAULT_PATTERNS.get(category, [])
+                    custom = st.session_state.custom_patterns.get(category, [])
+                    
+                    all_patterns = default_patterns + custom
+                    
+                    patterns_text = st.text_input(
+                        f"{category} patterns (comma-separated):",
+                        value=", ".join(all_patterns),
+                        key=f'pattern_{category}'
+                    )
+                    
+                    # Update custom patterns
+                    new_patterns = [p.strip() for p in patterns_text.split(',') if p.strip()]
+                    st.session_state.custom_patterns[category] = [p for p in new_patterns if p not in default_patterns]
+            
+            # Categorize button
+            if st.button("🚀 Categorize URLs" if lang == "en" else "🚀 Categorizar URLs", type="primary", use_container_width=True):
+                with st.spinner("Categorizing..." if lang == "en" else "Categorizando..."):
+                    df_categorized = URLCategorizer.categorize_by_patterns(
+                        df,
+                        custom_patterns=st.session_state.custom_patterns
+                    )
+                    
+                    st.session_state.df_categorized = df_categorized
+                    st.session_state.df_processed = df_categorized  # Update main df
+                    
+                    st.success(f"✅ Categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ {len(df_categorized)} URLs categorizadas")
+                    st.balloons()
+        
+        # PREMIUM TIER: AI categorization
         else:
-            cannibalization.insert(1, 'your_best_position', 'Not Ranking')
+            st.subheader("⭐ AI-Powered Categorization" if lang == "en" else "⭐ Categorización con IA")
+            
+            st.markdown(f"""
+            <div class="info-box">
+                <strong>{"🔒 Privacy & Security:" if lang == "en" else "🔒 Privacidad y Seguridad:"}</strong><br>
+                {"• Your API key is NOT stored" if lang == "en" else "• Tu API key NO se guarda"}<br>
+                {"• Used only for this session" if lang == "en" else "• Se usa solo para esta sesión"}<br>
+                {"• Direct connection to AI provider (no intermediaries)" if lang == "en" else "• Conexión directa al proveedor de IA (sin intermediarios)"}
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.info("🤖 Uses Claude AI to analyze keywords + URLs for semantic categorization" if lang == "en" else "🤖 Usa Claude IA para analizar keywords + URLs para categorización semántica")
+            
+            # API Key input
+            api_key = st.text_input(
+                "Anthropic API Key (Claude):" if lang == "en" else "Clave API de Anthropic (Claude):",
+                type="password",
+                help="Get your API key at https://console.anthropic.com" if lang == "en" else "Obtén tu clave API en https://console.anthropic.com"
+            )
+            
+            # Categorization method selector
+            method = st.radio(
+                "Method:" if lang == "en" else "Método:",
+                options=['patterns', 'ai'],
+                format_func=lambda x: "🔍 Patterns (Free)" if x == 'patterns' else "🤖 AI (Premium)",
+                horizontal=True
+            )
+            
+            if method == 'ai' and not api_key:
+                st.warning("⚠️ Enter your API key to use AI categorization" if lang == "en" else "⚠️ Ingresa tu API key para usar categorización IA")
+            
+            # Categorize button
+            if st.button("🚀 Categorize URLs" if lang == "en" else "🚀 Categorizar URLs", type="primary", use_container_width=True):
+                
+                if method == 'patterns':
+                    with st.spinner("Categorizing with patterns..." if lang == "en" else "Categorizando con patrones..."):
+                        df_categorized = URLCategorizer.categorize_by_patterns(
+                            df,
+                            custom_patterns=st.session_state.custom_patterns
+                        )
+                        
+                        st.session_state.df_categorized = df_categorized
+                        st.session_state.df_processed = df_categorized
+                        
+                        st.success(f"✅ Categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ {len(df_categorized)} URLs categorizadas")
+                
+                elif method == 'ai' and api_key:
+                    with st.spinner("Categorizing with AI... This may take a few minutes" if lang == "en" else "Categorizando con IA... Esto puede tomar unos minutos"):
+                        try:
+                            df_categorized = URLCategorizer.categorize_with_ai(
+                                df,
+                                api_key=api_key,
+                                categories=st.session_state.categories,
+                                batch_size=50
+                            )
+                            
+                            st.session_state.df_categorized = df_categorized
+                            st.session_state.df_processed = df_categorized
+                            
+                            st.success(f"✅ AI categorized {len(df_categorized)} URLs" if lang == "en" else f"✅ IA categorizó {len(df_categorized)} URLs")
+                            st.balloons()
+                        
+                        except Exception as e:
+                            st.error(f"❌ AI Error: {str(e)}")
         
-        # Remove raw column used for calculation
-        if 'positions_raw' in cannibalization.columns:
-            cannibalization = cannibalization.drop('positions_raw', axis=1)
-        
-        # Sort by severity then by wasted traffic
-        severity_order = {'🔴 Critical': 0, '🟡 Warning': 1, '⚪ Minor': 2}
-        cannibalization['severity_rank'] = cannibalization['severity'].map(severity_order)
-        cannibalization = cannibalization.sort_values(['severity_rank', 'total_traffic'], ascending=[True, False])
-        cannibalization = cannibalization.drop('severity_rank', axis=1)
-        
-        return cannibalization
+        # Show category statistics if categorized
+        if st.session_state.df_categorized is not None:
+            st.markdown("---")
+            st.subheader("📊 Category Statistics by Domain" if lang == "en" else "📊 Estadísticas por Categoría y Dominio")
+            
+            df_cat = st.session_state.df_categorized
+            
+            # Get unique domains
+            if 'domain' in df_cat.columns:
+                domains = df_cat['domain'].unique()
+                
+                # Overall metrics
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Total Domains" if lang == "en" else "Dominios Totales", len(domains))
+                with col2:
+                    total_categories = df_cat['category'].nunique()
+                    st.metric("Total Categories" if lang == "en" else "Categorías Totales", total_categories)
+                with col3:
+                    uncategorized = len(df_cat[df_cat['category'] == 'Other'])
+                    st.metric("Uncategorized" if lang == "en" else "Sin Categorizar", uncategorized)
+                
+                st.markdown("---")
+                
+                # Tables per domain
+                for domain in sorted(domains):
+                    df_domain = df_cat[df_cat['domain'] == domain]
+                    
+                    # Check if domain is project or competitor
+                    is_project = df_domain['is_client'].iloc[0] if 'is_client' in df_domain.columns else False
+                    domain_type = "🏠 Your Project" if is_project else "🎯 Competitor"
+                    
+                    st.markdown(f"### {domain_type}: **{domain}**")
+                    
+                    # Get stats for this domain
+                    domain_stats = df_domain.groupby('category').agg({
+                        'keyword': 'count',
+                        'traffic': 'sum',
+                        'url': 'nunique'
+                    }).reset_index()
+                    
+                    domain_stats.columns = ['category', 'keywords', 'traffic', 'urls']
+                    domain_stats = domain_stats.sort_values('traffic', ascending=False)
+                    
+                    # Domain metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Keywords", f"{len(df_domain):,}")
+                    with col2:
+                        st.metric("Traffic", f"{df_domain['traffic'].sum():,.0f}")
+                    with col3:
+                        st.metric("URLs", f"{df_domain['url'].nunique():,}")
+                    with col4:
+                        st.metric("Categories", f"{df_domain['category'].nunique():,}")
+                    
+                    # Category breakdown table
+                    st.dataframe(
+                        domain_stats.style.format({
+                            'traffic': '{:,.0f}',
+                            'keywords': '{:,.0f}',
+                            'urls': '{:,.0f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                    
+                    st.markdown("---")
+            
+            # Preview categorized data
+            with st.expander("📋 Preview All Categorized Data" if lang == "en" else "📋 Vista Previa de Todos los Datos Categorizados"):
+                st.dataframe(
+                    df_cat[['domain', 'category', 'keyword', 'url', 'traffic']].head(100),
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+# TAB 3: Intelligence Analysis
+with tab3:
+    st.header("🧠 Intelligence Analysis" if lang == "en" else "🧠 Análisis de Inteligencia")
     
-    @staticmethod
-    def get_cannibalization_stats(cannibalization_df: pd.DataFrame) -> Dict:
-        """
-        Get summary stats for cannibalization
+    # Check tier
+    if st.session_state.tier != 'premium':
+        st.warning("⭐ Premium feature. Switch to Premium tier to unlock." if lang == "en" else "⭐ Función Premium. Cambia a tier Premium para desbloquear.")
+    elif st.session_state.df_processed is None:
+        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
+    else:
+        from utils.intelligence import SEOIntelligence
         
-        Returns:
-            {
-                'total_cannibal_keywords': int,
-                'critical_count': int,
-                'warning_count': int,
-                'minor_count': int,
-                'affected_traffic': int
-            }
-        """
-        if cannibalization_df is None or len(cannibalization_df) == 0:
-            return {
-                'total_cannibal_keywords': 0,
-                'critical_count': 0,
-                'warning_count': 0,
-                'minor_count': 0,
-                'affected_traffic': 0
-            }
+        df = st.session_state.df_processed
         
-        critical = len(cannibalization_df[cannibalization_df['severity'] == '🔴 Critical'])
-        warning = len(cannibalization_df[cannibalization_df['severity'] == '🟡 Warning'])
-        minor = len(cannibalization_df[cannibalization_df['severity'] == '⚪ Minor'])
+        # Feature 1: Cannibalization Detection
+        st.subheader("🔍 Cannibalization Detection" if lang == "en" else "🔍 Detección de Canibalización")
         
-        return {
-            'total_cannibal_keywords': len(cannibalization_df),
-            'critical_count': critical,
-            'warning_count': warning,
-            'minor_count': minor,
-            'affected_traffic': int(cannibalization_df['total_traffic'].sum())
-        }
-    
-    @staticmethod
-    def detect_content_gaps(df: pd.DataFrame) -> pd.DataFrame:
-        """
-        Detect content gaps: keywords competitors have but YOU don't
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>{"💡 What is Cannibalization?" if lang == "en" else "💡 ¿Qué es Canibalización?"}</strong><br>
+            {"Multiple URLs from YOUR project competing for the same keyword." if lang == "en" else "Múltiples URLs de TU proyecto compitiendo por la misma keyword."}<br><br>
+            <strong>{"Severity:" if lang == "en" else "Severidad:"}</strong><br>
+            {"🔴 Critical: At least 1 URL in Top 3 (losing authority)" if lang == "en" else "🔴 Crítico: Al menos 1 URL en Top 3 (perdiendo autoridad)"}<br>
+            {"🟡 Warning: At least 1 URL in Top 10 (page 1 competition)" if lang == "en" else "🟡 Advertencia: Al menos 1 URL en Top 10 (competencia en página 1)"}<br>
+            {"⚪ Minor: All URLs in page 2+ (low priority)" if lang == "en" else "⚪ Menor: Todas las URLs en página 2+ (baja prioridad)"}
+        </div>
+        """, unsafe_allow_html=True)
         
-        Returns:
-            DataFrame with: your_domain, your_position, keyword, competitor_domains, 
-                          competitor_count, competitor_traffic, volume, best_competitor_position
-        """
-        if 'is_client' not in df.columns:
-            return pd.DataFrame()
+        if st.button("🚀 Analyze Cannibalization" if lang == "en" else "🚀 Analizar Canibalización", type="primary"):
+            with st.spinner("Analyzing..." if lang == "en" else "Analizando..."):
+                cannibalization = SEOIntelligence.detect_cannibalization(df)
+                
+                if len(cannibalization) == 0:
+                    st.success("✅ No cannibalization detected! All keywords have unique URLs." if lang == "en" else "✅ ¡No se detectó canibalización! Todas las keywords tienen URLs únicas.")
+                else:
+                    stats = SEOIntelligence.get_cannibalization_stats(cannibalization)
+                    
+                    # Metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Cannibal Keywords" if lang == "en" else "Keywords Canibalizadas", stats['total_cannibal_keywords'])
+                    with col2:
+                        st.metric("🔴 Critical", stats['critical_count'])
+                    with col3:
+                        st.metric("🟡 Warning", stats['warning_count'])
+                    with col4:
+                        st.metric("⚪ Minor", stats['minor_count'])
+                    
+                    st.markdown("---")
+                    
+                    # Table
+                    st.markdown("### 📋 Cannibalized Keywords" if lang == "en" else "### 📋 Keywords Canibalizadas")
+                    
+                    # Reorder columns for display
+                    display_cols = ['severity', 'keyword', 'urls_count']
+                    
+                    if 'positions_list' in cannibalization.columns:
+                        display_cols.append('positions_list')
+                    if 'categories_list' in cannibalization.columns:
+                        display_cols.append('categories_list')
+                    
+                    display_cols.extend(['total_traffic', 'urls_list'])
+                    
+                    st.dataframe(
+                        cannibalization[display_cols].style.format({
+                            'total_traffic': '{:,.0f}',
+                            'urls_count': '{:,.0f}'
+                        }),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
         
-        # Get client domain
-        df_client = df[df['is_client'] == True]
-        client_domain = df_client['domain'].iloc[0] if len(df_client) > 0 and 'domain' in df_client.columns else 'Unknown'
+        st.markdown("---")
         
-        # Get client and competitor keywords
-        client_keywords = set(df_client['keyword'].unique())
-        df_competitors = df[df['is_client'] == False].copy()
+        # Feature 2: Content Gaps
+        st.subheader("🎯 Content Gaps Detection" if lang == "en" else "🎯 Detección de Brechas de Contenido")
         
-        if len(df_competitors) == 0:
-            return pd.DataFrame()
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>{"💡 What are Content Gaps?" if lang == "en" else "💡 ¿Qué son Brechas de Contenido?"}</strong><br>
+            {"Keywords that competitors rank for but YOU don't." if lang == "en" else "Keywords por las que rankean competidores pero TÚ no."}<br>
+            {"= Content opportunities to create new pages" if lang == "en" else "= Oportunidades para crear nuevo contenido"}
+        </div>
+        """, unsafe_allow_html=True)
         
-        # Filter keywords that competitors have but client doesn't
-        df_gaps = df_competitors[~df_competitors['keyword'].isin(client_keywords)].copy()
+        if st.button("🚀 Find Content Gaps" if lang == "en" else "🚀 Encontrar Brechas", type="primary", key="gaps_btn"):
+            with st.spinner("Analyzing..." if lang == "en" else "Analizando..."):
+                gaps = SEOIntelligence.detect_content_gaps(df)
+                
+                if len(gaps) == 0:
+                    st.success("✅ No content gaps! You're covering all competitor keywords." if lang == "en" else "✅ ¡Sin brechas! Cubres todas las keywords de competidores.")
+                else:
+                    stats = SEOIntelligence.get_content_gaps_stats(gaps)
+                    
+                    # Metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Gap Keywords" if lang == "en" else "Keywords Faltantes", stats['total_gap_keywords'])
+                    with col2:
+                        st.metric("High Volume (>100)" if lang == "en" else "Alto Volumen (>100)", stats['high_volume_gaps'])
+                    with col3:
+                        st.metric("Total Opportunity" if lang == "en" else "Oportunidad Total", f"{stats['total_opportunity_volume']:,}")
+                    with col4:
+                        st.metric("Avg Competitors" if lang == "en" else "Competidores Prom.", stats['avg_competitor_count'])
+                    
+                    st.markdown("---")
+                    
+                    # Table
+                    st.markdown("### 📋 Content Gap Opportunities" if lang == "en" else "### 📋 Oportunidades de Contenido")
+                    
+                    # Build display columns in exact order
+                    display_cols = ['keyword']
+                    
+                    if 'volume' in gaps.columns:
+                        display_cols.append('volume')
+                    if 'kd' in gaps.columns:
+                        display_cols.append('kd')
+                    
+                    display_cols.append('your_position')
+                    display_cols.extend(['competitor_count', 'competitor_domains', 'competitor_urls'])
+                    
+                    if 'best_competitor_position' in gaps.columns:
+                        display_cols.append('best_competitor_position')
+                    
+                    display_cols.append('competitor_traffic')
+                    
+                    format_dict = {'competitor_traffic': '{:,.0f}'}
+                    if 'volume' in gaps.columns:
+                        format_dict['volume'] = '{:,.0f}'
+                    
+                    st.dataframe(
+                        gaps[display_cols].style.format(format_dict),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
         
-        if len(df_gaps) == 0:
-            return pd.DataFrame()
+        st.markdown("---")
         
-        # Aggregate by keyword
-        agg_dict = {
-            'domain': ['nunique', lambda x: ' | '.join(x.unique())],
-            'url': lambda x: ' | '.join(x.astype(str).unique()),  # Competitor URLs
-            'traffic': 'sum',
-        }
+        # Feature 3: Competitive Zones
+        st.subheader("🗺️ Competitive Zones" if lang == "en" else "🗺️ Zonas Competitivas")
         
-        if 'volume' in df_gaps.columns:
-            agg_dict['volume'] = 'first'
+        st.markdown(f"""
+        <div class="info-box">
+            <strong>{"💡 What are Competitive Zones?" if lang == "en" else "💡 ¿Qué son Zonas Competitivas?"}</strong><br>
+            {"🟢 Dominio: Only YOU rank (protect your territory)" if lang == "en" else "🟢 Dominio: Solo TÚ rankeas (protege tu territorio)"}<br>
+            {"🔴 Guerra: YOU + competitors rank (direct battle)" if lang == "en" else "🔴 Guerra: TÚ + competidores rankean (batalla directa)"}<br>
+            {"🟡 QuickWin: Only competitors, low volume (easy to capture)" if lang == "en" else "🟡 QuickWin: Solo competidores, volumen bajo (fácil de capturar)"}<br>
+            {"🟣 Gap: Only competitors, high volume (difficult)" if lang == "en" else "🟣 Gap: Solo competidores, volumen alto (difícil)"}
+        </div>
+        """, unsafe_allow_html=True)
         
-        if 'kd' in df_gaps.columns:
-            agg_dict['kd'] = 'first'
+        # Quick Win threshold selector
+        quick_win_threshold = st.slider(
+            "QuickWin threshold (volume)" if lang == "en" else "Umbral QuickWin (volumen)",
+            min_value=50,
+            max_value=500,
+            value=100,
+            step=50,
+            help="Keywords below this volume = QuickWin, above = Gap" if lang == "en" else "Keywords debajo de este volumen = QuickWin, arriba = Gap"
+        )
         
-        if 'position' in df_gaps.columns:
-            agg_dict['position'] = lambda x: min([p for p in x if pd.notna(p) and p > 0], default=None)
-        
-        gaps = df_gaps.groupby('keyword').agg(agg_dict).reset_index()
-        
-        # Flatten multi-level columns manually
-        # gaps structure: keyword, (domain, nunique), (domain, <lambda>), url, traffic, [volume], [kd], [position]
-        
-        result = pd.DataFrame()
-        result['keyword'] = gaps.iloc[:, 0]  # keyword
-        
-        # Domain columns are multi-level: (domain, nunique) and (domain, <lambda>)
-        result['competitor_count'] = gaps.iloc[:, 1]  # (domain, nunique)
-        result['competitor_domains'] = gaps.iloc[:, 2]  # (domain, <lambda>)
-        
-        # Find position of other columns
-        col_idx = 3
-        result['competitor_urls'] = gaps.iloc[:, col_idx]
-        col_idx += 1
-        
-        result['competitor_traffic'] = gaps.iloc[:, col_idx]
-        col_idx += 1
-        
-        # Add optional columns
-        if 'volume' in df_gaps.columns:
-            result.insert(1, 'volume', gaps.iloc[:, col_idx])
-            col_idx += 1
-        
-        if 'kd' in df_gaps.columns:
-            idx = 2 if 'volume' in result.columns else 1
-            result.insert(idx, 'kd', gaps.iloc[:, col_idx])
-            col_idx += 1
-        
-        if 'position' in df_gaps.columns:
-            result['best_competitor_position'] = gaps.iloc[:, col_idx]
-        
-        # Convert competitor_count to int
-        result['competitor_count'] = pd.to_numeric(result['competitor_count'], errors='coerce').fillna(0).astype(int)
-        
-        # Add "Your Position" column (always "Not Ranking" for gaps)
-        # Insert after kd or volume
-        insert_idx = 1
-        if 'volume' in result.columns:
-            insert_idx += 1
-        if 'kd' in result.columns:
-            insert_idx += 1
-        
-        result.insert(insert_idx, 'your_position', 'Not Ranking')
-        
-        # Sort by volume (high opportunity first)
-        if 'volume' in result.columns:
-            result = result.sort_values('volume', ascending=False)
-        else:
-            result = result.sort_values('competitor_traffic', ascending=False)
-        
-        return result
-    
-    @staticmethod
-    def get_content_gaps_stats(gaps_df: pd.DataFrame) -> Dict:
-        """
-        Get summary stats for content gaps
-        
-        Returns:
-            {
-                'total_gap_keywords': int,
-                'high_volume_gaps': int (volume > 100),
-                'total_opportunity_volume': int,
-                'avg_competitor_count': float
-            }
-        """
-        if gaps_df is None or len(gaps_df) == 0:
-            return {
-                'total_gap_keywords': 0,
-                'high_volume_gaps': 0,
-                'total_opportunity_volume': 0,
-                'avg_competitor_count': 0
-            }
-        
-        high_volume = 0
-        total_volume = 0
-        
-        if 'volume' in gaps_df.columns:
-            high_volume = len(gaps_df[gaps_df['volume'] > 100])
-            total_volume = int(gaps_df['volume'].sum())
-        
-        avg_competitors = gaps_df['competitor_count'].mean()
-        
-        return {
-            'total_gap_keywords': len(gaps_df),
-            'high_volume_gaps': high_volume,
-            'total_opportunity_volume': total_volume,
-            'avg_competitor_count': round(avg_competitors, 1)
-        }
+        if st.button("🚀 Classify Zones" if lang == "en" else "🚀 Clasificar Zonas", type="primary", key="zones_btn"):
+            with st.spinner("Classifying..." if lang == "en" else "Clasificando..."):
+                zones = SEOIntelligence.classify_competitive_zones(df, quick_win_threshold)
+                
+                if len(zones) == 0:
+                    st.warning("⚠️ No data to classify" if lang == "en" else "⚠️ No hay datos para clasificar")
+                else:
+                    stats = SEOIntelligence.get_competitive_zones_stats(zones)
+                    
+                    # Metrics
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("🟢 Dominio", stats['dominio_count'])
+                    with col2:
+                        st.metric("🔴 Guerra", stats['guerra_count'])
+                    with col3:
+                        st.metric("🟡 QuickWin", stats['quickwin_count'])
+                    with col4:
+                        st.metric("🟣 Gap", stats['gap_count'])
+                    
+                    st.markdown("---")
+                    
+                    # Table
+                    st.markdown("### 📋 Competitive Zone Classification" if lang == "en" else "### 📋 Clasificación de Zonas Competitivas")
+                    
+                    # Build display columns
+                    display_cols = ['zone', 'keyword']
+                    
+                    if 'volume' in zones.columns:
+                        display_cols.append('volume')
+                    if 'kd' in zones.columns:
+                        display_cols.append('kd')
+                    
+                    display_cols.extend(['your_position', 'competitor_count', 'competitor_domains'])
+                    
+                    format_dict = {}
+                    if 'volume' in zones.columns:
+                        format_dict['volume'] = '{:,.0f}'
+                    
+                    st.dataframe(
+                        zones[display_cols].style.format(format_dict),
+                        use_container_width=True,
+                        hide_index=True,
+                        height=400
+                    )
