@@ -155,3 +155,97 @@ class SEOIntelligence:
             'minor_count': minor,
             'affected_traffic': int(cannibalization_df['total_traffic'].sum())
         }
+    
+    @staticmethod
+    def detect_content_gaps(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Detect content gaps: keywords competitors have but YOU don't
+        
+        Returns:
+            DataFrame with: keyword, competitor_domains, competitor_count, 
+                          competitor_traffic, volume, best_competitor_position
+        """
+        if 'is_client' not in df.columns:
+            return pd.DataFrame()
+        
+        # Get client and competitor keywords
+        client_keywords = set(df[df['is_client'] == True]['keyword'].unique())
+        df_competitors = df[df['is_client'] == False].copy()
+        
+        if len(df_competitors) == 0:
+            return pd.DataFrame()
+        
+        # Filter keywords that competitors have but client doesn't
+        df_gaps = df_competitors[~df_competitors['keyword'].isin(client_keywords)].copy()
+        
+        if len(df_gaps) == 0:
+            return pd.DataFrame()
+        
+        # Aggregate by keyword
+        agg_dict = {
+            'domain': ['nunique', lambda x: ' | '.join(x.unique())],
+            'traffic': 'sum',
+        }
+        
+        if 'volume' in df_gaps.columns:
+            agg_dict['volume'] = 'first'
+        
+        if 'position' in df_gaps.columns:
+            agg_dict['position'] = lambda x: min([p for p in x if pd.notna(p) and p > 0], default=None)
+        
+        gaps = df_gaps.groupby('keyword').agg(agg_dict).reset_index()
+        
+        # Flatten column names
+        col_names = ['keyword', 'competitor_count', 'competitor_domains', 'competitor_traffic']
+        
+        if 'volume' in df_gaps.columns:
+            col_names.append('volume')
+        if 'position' in df_gaps.columns:
+            col_names.append('best_competitor_position')
+        
+        gaps.columns = col_names
+        
+        # Sort by volume (high opportunity first)
+        if 'volume' in gaps.columns:
+            gaps = gaps.sort_values('volume', ascending=False)
+        else:
+            gaps = gaps.sort_values('competitor_traffic', ascending=False)
+        
+        return gaps
+    
+    @staticmethod
+    def get_content_gaps_stats(gaps_df: pd.DataFrame) -> Dict:
+        """
+        Get summary stats for content gaps
+        
+        Returns:
+            {
+                'total_gap_keywords': int,
+                'high_volume_gaps': int (volume > 100),
+                'total_opportunity_volume': int,
+                'avg_competitor_count': float
+            }
+        """
+        if gaps_df is None or len(gaps_df) == 0:
+            return {
+                'total_gap_keywords': 0,
+                'high_volume_gaps': 0,
+                'total_opportunity_volume': 0,
+                'avg_competitor_count': 0
+            }
+        
+        high_volume = 0
+        total_volume = 0
+        
+        if 'volume' in gaps_df.columns:
+            high_volume = len(gaps_df[gaps_df['volume'] > 100])
+            total_volume = int(gaps_df['volume'].sum())
+        
+        avg_competitors = gaps_df['competitor_count'].mean()
+        
+        return {
+            'total_gap_keywords': len(gaps_df),
+            'high_volume_gaps': high_volume,
+            'total_opportunity_volume': total_volume,
+            'avg_competitor_count': round(avg_competitors, 1)
+        }
