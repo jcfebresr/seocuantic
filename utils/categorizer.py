@@ -2,6 +2,7 @@ import pandas as pd
 import re
 import json
 import requests
+import time
 from typing import Dict, List
 
 class URLCategorizer:
@@ -52,11 +53,11 @@ class URLCategorizer:
                 else:
                     patterns_to_check[cat] = pats
 
-        # 1. Lógica Especial para el "Home"
+        # Lógica Especial para el "Home"
         home_mask = urls_lower.str.match(r'^https?://[^/]+/?$')
         df_cat.loc[home_mask & (df_cat['category'] == 'Other'), 'category'] = 'Home'
 
-        # 2. Regex masivo para el resto
+        # Regex masivo para el resto
         for category, patterns in patterns_to_check.items():
             if category == 'Other' or not patterns: 
                 continue
@@ -78,7 +79,7 @@ class URLCategorizer:
 
     @staticmethod
     def categorize_with_ai(df: pd.DataFrame, api_key: str, provider: str, categories: List[str], batch_size: int = 50) -> pd.DataFrame:
-        """Categorize URLs using any AI Provider via native HTTP requests (No SDK needed)"""
+        """Categorize URLs using any AI Provider with Rate Limit Handling (Resilience)"""
         df = df.copy()
         total_rows = len(df)
         df['category'] = 'Other'
@@ -94,105 +95,92 @@ class URLCategorizer:
                     'url': row.get('url', '')
                 })
             
-            # Prompt de sistema estructurado
             prompt = f"Categorize these URLs into EXACTLY ONE of these categories: {', '.join(categories)}\n\n"
             prompt += "Rules:\n- Return ONLY the category name\n- Analyze both URL path and keyword\n\nURLs:\n"
             prompt += "\n".join([f"{j+1}. Keyword: '{d['keyword']}' | URL: {d['url']}" for j, d in enumerate(batch_data)])
             prompt += "\n\nReturn ONLY a numbered list (e.g., \n1. Blog\n2. Products):"
             
-            try:
-                result_text = ""
-                
-                # 1. GROQ API (Llama 3)
-                if provider == 'groq':
-                    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-                    data = {
-                        "model": "llama-3.3-70b-versatile",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0
-                    }
-                    r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data, timeout=30)
-                    r.raise_for_status()
-                    result_text = r.json()['choices'][0]['message']['content']
-                
-                # 2. OPENAI API (GPT-4o-mini)
-                elif provider == 'openai':
-                    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-                    data = {
-                        "model": "gpt-4o-mini",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "temperature": 0
-                    }
-                    r = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data, timeout=30)
-                    r.raise_for_status()
-                    result_text = r.json()['choices'][0]['message']['content']
+            # --- SISTEMA DE REINTENTOS (ANTI-CRASH) ---
+            max_retries = 4
+            retry_delay = 8 # Segundos base de espera si nos bloquean
+            
+            for attempt in range(max_retries):
+                try:
+                    result_text = ""
                     
-                # 3. ANTHROPIC API (Claude 3.5 Sonnet) - Sin SDK
-                elif provider == 'anthropic':
-                    headers = {
-                        "x-api-key": api_key,
-                        "anthropic-version": "2023-06-01",
-                        "content-type": "application/json"
-                    }
-                    data = {
-                        "model": "claude-3-5-sonnet-20241022",
-                        "max_tokens": 1024,
-                        "messages": [{"role": "user", "content": prompt}]
-                    }
-                    r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=data, timeout=30)
-                    r.raise_for_status()
-                    result_text = r.json()['content'][0]['text']
+                    if provider == 'groq':
+                        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                        # Usamos llama-3.1-8b-instant: Más rápido y consume mucha menos cuota TPM
+                        data = {"model": "llama-3.1-8b-instant", "messages": [{"role": "user", "content": prompt}], "temperature": 0}
+                        r = requests.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=data)
+                        r.raise_for_status()
+                        result_text = r.json()['choices'][0]['message']['content']
                     
-                # 4. GOOGLE API (Gemini 1.5 Flash)
-                elif provider == 'google':
-                    headers = {"Content-Type": "application/json"}
-                    data = {"contents": [{"parts": [{"text": prompt}]}]}
-                    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-                    r = requests.post(url, headers=headers, json=data, timeout=30)
-                    r.raise_for_status()
-                    result_text = r.json()['candidates'][0]['content']['parts'][0]['text']
-                else:
-                    raise ValueError(f"Proveedor '{provider}' no reconocido. Usa: groq, openai, anthropic, google")
+                    elif provider == 'openai':
+                        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                        data = {"model": "gpt-4o-mini", "messages": [{"role": "user", "content": prompt}], "temperature": 0}
+                        r = requests.post("https://api.openai.com/v1/chat/completions", headers=headers, json=data)
+                        r.raise_for_status()
+                        result_text = r.json()['choices'][0]['message']['content']
+                        
+                    elif provider == 'anthropic':
+                        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+                        data = {"model": "claude-3-5-sonnet-20241022", "max_tokens": 1024, "messages": [{"role": "user", "content": prompt}]}
+                        r = requests.post("https://api.anthropic.com/v1/messages", headers=headers, json=data)
+                        r.raise_for_status()
+                        result_text = r.json()['content'][0]['text']
+                        
+                    elif provider == 'google':
+                        headers = {"Content-Type": "application/json"}
+                        data = {"contents": [{"parts": [{"text": prompt}]}]}
+                        r = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}", headers=headers, json=data)
+                        r.raise_for_status()
+                        result_text = r.json()['candidates'][0]['content']['parts'][0]['text']
+                    else:
+                        raise ValueError("Proveedor de IA no reconocido.")
 
-                # Procesamiento de la respuesta (Parseo)
-                lines = [line.strip() for line in result_text.split('\n') if line.strip()]
-                
-                for j, line in enumerate(lines):
-                    # Solo procesamos líneas que empiecen con un número
-                    if not re.match(r'^\d+\.', line):
-                        continue
-                        
-                    # Extraer el número de índice y la categoría
-                    parts = re.split(r'^\d+\.\s*', line)
-                    if len(parts) > 1:
-                        category_raw = parts[1].strip().split(' ')[0]
-                        
-                        # Limpieza de puntuación
-                        category = re.sub(r'[^a-zA-Z0-9_áéíóúÁÉÍÓÚñÑ]', '', category_raw)
-                        
-                        # Mapeo estricto contra categorías válidas
-                        matched_cat = 'Other'
-                        for valid_cat in categories:
-                            if valid_cat.lower() == category.lower():
-                                matched_cat = valid_cat
-                                break
-                        
-                        # Encontrar índice original en el dataframe
-                        list_num_match = re.match(r'^(\d+)\.', line)
-                        if list_num_match:
-                            item_idx = int(list_num_match.group(1)) - 1
-                            if item_idx < len(batch_data):
-                                real_idx = batch_data[item_idx]['index']
-                                df.at[real_idx, 'category'] = matched_cat
-                                df.at[real_idx, 'ai_confidence'] = 0.95
-                                
-            except requests.exceptions.Timeout:
-                raise Exception(f"Timeout en API {provider} - batch {i}")
-            except requests.exceptions.HTTPError as err:
-                error_msg = err.response.text if hasattr(err.response, 'text') else str(err)
-                raise Exception(f"API Error ({provider}): {error_msg}")
-            except Exception as e:
-                raise Exception(f"Error procesando batch {i}: {str(e)}")
+                    # Parseo de resultados
+                    lines = [line.strip() for line in result_text.split('\n') if line.strip()]
+                    for j, line in enumerate(lines):
+                        if not re.match(r'^\d+\.', line): continue
+                            
+                        parts = re.split(r'^\d+\.\s*', line)
+                        if len(parts) > 1:
+                            category_raw = parts[1].strip().split(' ')[0]
+                            category = re.sub(r'[^a-zA-Z0-9_áéíóúÁÉÍÓÚñÑ]', '', category_raw)
+                            
+                            matched_cat = 'Other'
+                            for valid_cat in categories:
+                                if valid_cat.lower() == category.lower():
+                                    matched_cat = valid_cat
+                                    break
+                            
+                            list_num_match = re.match(r'^(\d+)\.', line)
+                            if list_num_match:
+                                item_idx = int(list_num_match.group(1)) - 1
+                                if item_idx < len(batch_data):
+                                    real_idx = batch_data[item_idx]['index']
+                                    df.at[real_idx, 'category'] = matched_cat
+                                    df.at[real_idx, 'ai_confidence'] = 0.95
+                    
+                    # Si el código llega aquí, la API respondió bien. Rompemos el bucle de reintentos.
+                    break
+                                    
+                except requests.exceptions.HTTPError as err:
+                    if err.response.status_code == 429: # Error de Límite de Cuota (Too Many Requests)
+                        if attempt < max_retries - 1:
+                            time.sleep(retry_delay) # El script se pausa silenciosamente
+                            retry_delay *= 2 # La próxima vez esperará el doble (8s, 16s, 32s)
+                            continue # Vuelve a intentar la misma llamada a la API
+                    
+                    # Si no es error 429 o ya reintentó muchas veces, lanza el error
+                    error_msg = err.response.text if hasattr(err.response, 'text') else str(err)
+                    raise Exception(f"{error_msg}")
+                except Exception as e:
+                    raise Exception(f"{str(e)}")
+            
+            # Pausa preventiva de 2 segundos entre cada grupo de 50 URLs para no asfixiar el límite gratuito
+            time.sleep(2)
                 
         return df
 
