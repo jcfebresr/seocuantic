@@ -13,12 +13,14 @@ class URLCategorizer:
     
     # Default categories and their URL patterns
     DEFAULT_PATTERNS = {
-        'Blog': ['/blog', '/post', '/article', '/news', '/insights'],
-        'Products': ['/product', '/shop', '/store', '/buy', '/cart'],
-        'Services': ['/service', '/solution', '/offer'],
-        'Home': ['/', '/home', '/index'],
-        'About': ['/about', '/company', '/team', '/contact'],
-        'Docs': ['/doc', '/guide', '/help', '/support', '/faq'],
+        'Blog': ['/blog', '/post', '/article', '/news', '/insights', '/articulo'],
+        'Products': ['/product', '/shop', '/store', '/buy', '/cart', '/item'],
+        'Services': ['/service', '/solution', '/offer', '/servicio'],
+        'Tools': ['/tools', '/tool', '/herramienta', '/calculator', '/generator'],
+        'Home': ['/home', '/index', '/inicio'],
+        'About': ['/about', '/company', '/team', '/contact', '/contacto'],
+        'Docs': ['/doc', '/guide', '/help', '/support', '/faq', '/documentation'],
+        'Directory': ['/directory', '/directorio', '/listing'],
         'Other': []
     }
     
@@ -35,26 +37,39 @@ class URLCategorizer:
         # Merge default + custom patterns
         patterns = URLCategorizer.DEFAULT_PATTERNS.copy()
         if custom_patterns:
-            patterns.update(custom_patterns)
+            for category, custom_list in custom_patterns.items():
+                if category in patterns:
+                    patterns[category].extend(custom_list)
+                else:
+                    patterns[category] = custom_list
         
-        def match_category(url: str) -> str:
-            if pd.isna(url) or not url:
-                return 'Other'
-            
-            url_lower = url.lower()
-            
-            # Try each category's patterns
-            for category, pattern_list in patterns.items():
-                if category == 'Other':
-                    continue
-                    
-                for pattern in pattern_list:
-                    if pattern in url_lower:
-                        return category
-            
-            return 'Other'
+        # Initialize category column
+        df['category'] = 'Other'
         
-        df['category'] = df['url'].apply(match_category)
+        # Vectorized categorization
+        url_lower = df['url'].astype(str).str.lower()
+        
+        # Special case: Home (exact domain match or domain/)
+        home_pattern = r'^https?://[^/]+/?$'
+        df.loc[url_lower.str.match(home_pattern), 'category'] = 'Home'
+        
+        # Pattern matching for other categories
+        for category, pattern_list in patterns.items():
+            if category in ['Other', 'Home']:
+                continue
+            
+            if not pattern_list:
+                continue
+            
+            # Create regex pattern from list
+            escaped_patterns = [re.escape(p) for p in pattern_list]
+            regex_pattern = '|'.join(escaped_patterns)
+            
+            # Match URLs that contain any of the patterns
+            mask = url_lower.str.contains(regex_pattern, regex=True, na=False)
+            
+            # Only update rows that are still 'Other'
+            df.loc[mask & (df['category'] == 'Other'), 'category'] = category
         
         return df
     
