@@ -203,30 +203,36 @@ class SEOIntelligence:
         
         gaps = df_gaps.groupby('keyword').agg(agg_dict).reset_index()
         
-        # Manually extract columns to avoid multi-level issues
+        # Flatten multi-level columns manually
+        # gaps structure: keyword, (domain, nunique), (domain, <lambda>), url, traffic, [volume], [kd], [position]
+        
         result = pd.DataFrame()
-        result['keyword'] = gaps['keyword']
+        result['keyword'] = gaps.iloc[:, 0]  # keyword
         
-        # Extract domain aggregations
-        if isinstance(gaps['domain'].iloc[0], tuple):
-            result['competitor_count'] = gaps['domain'].apply(lambda x: x[0] if isinstance(x, tuple) else x)
-            result['competitor_domains'] = gaps['domain'].apply(lambda x: x[1] if isinstance(x, tuple) else x)
-        else:
-            result['competitor_count'] = gaps[('domain', 'nunique')]
-            result['competitor_domains'] = gaps[('domain', '<lambda>')]
+        # Domain columns are multi-level: (domain, nunique) and (domain, <lambda>)
+        result['competitor_count'] = gaps.iloc[:, 1]  # (domain, nunique)
+        result['competitor_domains'] = gaps.iloc[:, 2]  # (domain, <lambda>)
         
-        result['competitor_urls'] = gaps['url']
-        result['competitor_traffic'] = gaps['traffic']
+        # Find position of other columns
+        col_idx = 3
+        result['competitor_urls'] = gaps.iloc[:, col_idx]
+        col_idx += 1
         
-        if 'volume' in gaps.columns:
-            result.insert(1, 'volume', gaps['volume'])
+        result['competitor_traffic'] = gaps.iloc[:, col_idx]
+        col_idx += 1
         
-        if 'kd' in gaps.columns:
+        # Add optional columns
+        if 'volume' in df_gaps.columns:
+            result.insert(1, 'volume', gaps.iloc[:, col_idx])
+            col_idx += 1
+        
+        if 'kd' in df_gaps.columns:
             idx = 2 if 'volume' in result.columns else 1
-            result.insert(idx, 'kd', gaps['kd'])
+            result.insert(idx, 'kd', gaps.iloc[:, col_idx])
+            col_idx += 1
         
-        if 'position' in gaps.columns:
-            result['best_competitor_position'] = gaps['position']
+        if 'position' in df_gaps.columns:
+            result['best_competitor_position'] = gaps.iloc[:, col_idx]
         
         # Convert competitor_count to int
         result['competitor_count'] = pd.to_numeric(result['competitor_count'], errors='coerce').fillna(0).astype(int)
