@@ -3,12 +3,13 @@ import pandas as pd
 import chardet
 import io
 
-# Importaciones de tus módulos
+# Importaciones de tus módulos (Asegúrate de que estos archivos existan en tu carpeta utils)
 from utils.source_detector import detect_source_and_map
 from utils.data_normalizer import normalize_data
 from utils.project_identifier import get_domain_stats
 from utils.categorizer import URLCategorizer
 from utils.intelligence import SEOIntelligence
+# from utils.visualizations import SEOVisualizations # Descomentar cuando lo creemos
 
 # 1. Configuración de página
 st.set_page_config(
@@ -403,8 +404,7 @@ with tab2:
                 ai_provider = st.selectbox("Select AI Engine:" if lang == "en" else "Motor de IA:",
                     options=["Groq (Fast & Free)", "OpenAI (GPT-4o)", "Anthropic (Claude)", "Google (Gemini)"], index=0)
             
-            provider_name = ai_provider.split(" ")[0].lower() # Aseguramos que sea minúsculas y solo el nombre ('groq', 'openai', etc.)
-            
+            provider_name = ai_provider.split(" ")[0].lower()
             with col_ai2:
                 api_key = st.text_input(f"{provider_name.capitalize()} API Key:", type="password")
                 
@@ -432,7 +432,6 @@ with tab2:
                     else:
                         with st.spinner(f"AI Processing with {provider_name.capitalize()}..."):
                             try:
-                                # AQUI ESTÁ EL ARREGLO EXPLICITO CON KWARGS PARA EVITAR ERRORES DE POSICIÓN
                                 df_cat = URLCategorizer.categorize_with_ai(
                                     df=df, 
                                     api_key=api_key, 
@@ -468,4 +467,88 @@ with tab2:
                         st.metric("Total Categories" if lang == "en" else "Categorías Usadas", len(category_stats))
                     with col2:
                         top_cat = category_stats.iloc[0]['category'] if len(category_stats) > 0 else 'N/A'
-                        st.metric("Top Category" if lang == "en" else "Categoría Principal", top
+                        st.metric("Top Category" if lang == "en" else "Categoría Principal", top_cat)
+                    with col3:
+                        uncategorized = len(df_domain[df_domain['category'] == 'Other'])
+                        st.metric("Uncategorized (Other)" if lang == "en" else "Sin Categorizar", uncategorized)
+                    
+                    st.dataframe(category_stats.style.format({'traffic': '{:,.0f}', 'keywords': '{:,.0f}', 'urls': '{:,.0f}'}), use_container_width=True, hide_index=True)
+                    
+                    with st.expander(f"📋 Preview URLs: {domain}"):
+                        cols_to_show = ['category', 'keyword', 'url', 'traffic']
+                        if 'ai_confidence' in df_domain.columns:
+                            cols_to_show.append('ai_confidence')
+                        st.dataframe(df_domain[cols_to_show].head(50), use_container_width=True, hide_index=True)
+            else:
+                st.error("Error: 'domain' column not found." if lang == "en" else "Error: Columna 'domain' no encontrada.")
+
+# ==========================================
+# TAB 3: INTELLIGENCE
+# ==========================================
+with tab3:
+    st.header("🧠 SEO Intelligence" if lang == "en" else "🧠 Inteligencia SEO")
+    
+    if st.session_state.df_categorized is None:
+        st.warning("⚠️ Categorize your data first (Tab 2)" if lang == "en" else "⚠️ Categoriza tus datos primero (Tab 2)")
+    else:
+        df_intel = st.session_state.df_categorized
+        
+        # --- SECCIÓN 1: CANIBALIZACIÓN ---
+        st.subheader("⚠️ Cannibalization Analysis" if lang == "en" else "⚠️ Análisis de Canibalización")
+        st.info("Detects multiple URLs from your project competing for the exact same keyword in Google." if lang == "en" else "Detecta múltiples URLs de tu proyecto compitiendo por la misma palabra clave en Google.")
+        
+        df_cannibal = SEOIntelligence.detect_cannibalization(df_intel)
+        
+        if df_cannibal.empty:
+            st.success("✅ No cannibalization issues found in your project!" if lang == "en" else "✅ ¡No se detectó canibalización en tu proyecto!")
+        else:
+            stats_cannibal = SEOIntelligence.get_cannibalization_stats(df_cannibal)
+            
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Keywords Affected" if lang == "en" else "Keywords Afectadas", stats_cannibal['total_cannibal_keywords'])
+            c2.metric("🔴 Critical (Top 3)", stats_cannibal['critical_count'])
+            c3.metric("🟡 Warning (Top 10)", stats_cannibal['warning_count'])
+            c4.metric("Traffic at Risk" if lang == "en" else "Tráfico en Riesgo", f"{stats_cannibal['affected_traffic']:,}")
+            
+            st.dataframe(df_cannibal, use_container_width=True, hide_index=True)
+        
+        st.markdown("---")
+        
+        # --- SECCIÓN 2: CONTENT GAPS ---
+        st.subheader("🎯 Content Gaps (Opportunities)" if lang == "en" else "🎯 Brechas de Contenido (Oportunidades)")
+        st.info("Keywords where your competitors rank, but your project doesn't exist." if lang == "en" else "Keywords donde tus competidores rankean, pero tu proyecto no existe.")
+        
+        # Verificar si hay competidores cargados para hacer el Gap Analysis
+        has_competitors = len(df_intel[df_intel['is_client'] == False]) > 0
+        
+        if not has_competitors:
+            st.warning("⚠️ Upload competitor data in Tab 1 to see Content Gaps." if lang == "en" else "⚠️ Sube datos de competidores en la Pestaña 1 para ver Brechas de Contenido.")
+        else:
+            df_gaps = SEOIntelligence.detect_content_gaps(df_intel)
+            
+            if df_gaps.empty:
+                st.success("✅ No content gaps found! You cover everything your competitors do." if lang == "en" else "✅ ¡No se encontraron brechas! Cubres todo lo que hacen tus competidores.")
+            else:
+                stats_gaps = SEOIntelligence.get_content_gaps_stats(df_gaps)
+                
+                g1, g2, g3, g4 = st.columns(4)
+                g1.metric("Total Gaps", stats_gaps['total_gap_keywords'])
+                g2.metric("High Volume Gaps (>100)", stats_gaps['high_volume_gaps'])
+                g3.metric("Potential Volume" if lang == "en" else "Volumen Potencial", f"{stats_gaps['total_opportunity_volume']:,}")
+                g4.metric("Avg. Competitors Ranking" if lang == "en" else "Promedio Competidores", stats_gaps['avg_competitor_count'])
+                
+                st.dataframe(df_gaps.head(500), use_container_width=True, hide_index=True)
+
+# ==========================================
+# TAB 4: ANALYTICS
+# ==========================================
+with tab4:
+    st.header("📊 Analytics Dashboard" if lang == "en" else "📊 Panel de Análisis")
+    
+    if st.session_state.df_categorized is None:
+        st.warning("⚠️ Categorize your data first (Tab 2)" if lang == "en" else "⚠️ Categoriza tus datos primero (Tab 2)")
+    else:
+        st.info("🚧 Visualizations Module coming soon!" if lang == "en" else "🚧 ¡Módulo de Visualizaciones próximamente!")
+        
+        with st.expander("Show Master Dataset" if lang == "en" else "Mostrar Base de Datos Maestra"):
+            st.dataframe(st.session_state.df_categorized, use_container_width=True)
