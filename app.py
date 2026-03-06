@@ -690,11 +690,17 @@ with tab3:
                     # Table
                     st.markdown("### 📋 Content Gap Opportunities" if lang == "en" else "### 📋 Oportunidades de Contenido")
                     
-                    # Reorder columns for display
-                    display_cols = ['your_domain', 'your_position', 'keyword', 'competitor_count', 'competitor_domains']
+                    # Build display columns in exact order
+                    display_cols = ['keyword']
                     
                     if 'volume' in gaps.columns:
                         display_cols.append('volume')
+                    if 'kd' in gaps.columns:
+                        display_cols.append('kd')
+                    
+                    display_cols.append('your_position')
+                    display_cols.extend(['competitor_count', 'competitor_domains', 'competitor_urls'])
+                    
                     if 'best_competitor_position' in gaps.columns:
                         display_cols.append('best_competitor_position')
                     
