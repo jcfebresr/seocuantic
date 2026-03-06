@@ -129,9 +129,10 @@ st.title("🔮 SEOcuantic Keyword Intelligence")
 st.markdown("**v0.6.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.6.0** - Análisis SEO con IA")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
     "📁 Categorization" if lang == "en" else "📁 Categorización",
+    "🧠 Intelligence" if lang == "en" else "🧠 Inteligencia",
     "📊 Analytics" if lang == "en" else "📊 Análisis"
 ])
 
@@ -149,8 +150,19 @@ with tab2:
     else:
         st.info("Categorization tab - por implementar completamente")
 
-# TAB 3: Analytics
+# TAB 3: Intelligence
 with tab3:
+    st.header("🧠 Intelligence Analysis" if lang == "en" else "🧠 Análisis de Inteligencia")
+    
+    if st.session_state.tier != 'premium':
+        st.warning("⭐ Premium feature" if lang == "en" else "⭐ Función Premium")
+    elif st.session_state.df_processed is None:
+        st.warning("⚠️ Upload data first" if lang == "en" else "⚠️ Sube datos primero")
+    else:
+        st.info("Intelligence features: Cannibalization, Content Gaps, Competitive Zones")
+
+# TAB 4: Analytics
+with tab4:
     st.header("📊 Analytics & Visualizations" if lang == "en" else "📊 Análisis y Visualizaciones")
     
     if st.session_state.df_processed is None:
