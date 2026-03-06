@@ -188,11 +188,15 @@ class SEOIntelligence:
         # Aggregate by keyword
         agg_dict = {
             'domain': ['nunique', lambda x: ' | '.join(x.unique())],
+            'url': lambda x: ' | '.join(x.astype(str).unique()),  # Competitor URLs
             'traffic': 'sum',
         }
         
         if 'volume' in df_gaps.columns:
             agg_dict['volume'] = 'first'
+        
+        if 'kd' in df_gaps.columns:
+            agg_dict['kd'] = 'first'
         
         if 'position' in df_gaps.columns:
             agg_dict['position'] = lambda x: min([p for p in x if pd.notna(p) and p > 0], default=None)
@@ -200,20 +204,27 @@ class SEOIntelligence:
         gaps = df_gaps.groupby('keyword').agg(agg_dict).reset_index()
         
         # Flatten column names
-        col_names = ['keyword', 'competitor_count', 'competitor_domains', 'competitor_traffic']
+        col_names = ['keyword', 'competitor_count', 'competitor_domains', 'competitor_urls', 'competitor_traffic']
         
         if 'volume' in df_gaps.columns:
-            col_names.append('volume')
+            col_names.insert(1, 'volume')  # Insert after keyword
+        if 'kd' in df_gaps.columns:
+            idx = 2 if 'volume' in df_gaps.columns else 1
+            col_names.insert(idx, 'kd')
         if 'position' in df_gaps.columns:
             col_names.append('best_competitor_position')
         
         gaps.columns = col_names
         
-        # Add client domain column at the beginning
-        gaps.insert(0, 'your_domain', client_domain)
-        
         # Add "Your Position" column (always "Not Ranking" for gaps)
-        gaps.insert(1, 'your_position', 'Not Ranking')
+        # Insert after kd or volume
+        insert_idx = 1
+        if 'volume' in gaps.columns:
+            insert_idx += 1
+        if 'kd' in gaps.columns:
+            insert_idx += 1
+        
+        gaps.insert(insert_idx, 'your_position', 'Not Ranking')
         
         # Sort by volume (high opportunity first)
         if 'volume' in gaps.columns:
