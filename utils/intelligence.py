@@ -216,8 +216,8 @@ class SEOIntelligence:
         
         gaps.columns = col_names
         
-        # Convert competitor_count to int (it's the first aggregation from domain)
-        gaps['competitor_count'] = gaps['competitor_count'].astype(int)
+        # Convert competitor_count to int (first to float to handle any edge cases)
+        gaps['competitor_count'] = pd.to_numeric(gaps['competitor_count'], errors='coerce').fillna(0).astype(int)
         
         # Add "Your Position" column (always "Not Ranking" for gaps)
         # Insert after kd or volume
