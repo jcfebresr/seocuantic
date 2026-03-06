@@ -101,9 +101,9 @@ class URLCategorizer:
         df_unique['category'] = 'Other'
         df_unique['ai_confidence'] = 0.0
         
-        # Ajustar batch_size para Groq
+        # Ajustar batch_size para Groq (6K TPM = ~100 tokens/seg)
         if provider == 'groq':
-            batch_size = min(batch_size, 25)  # Máximo 25 URLs por batch
+            batch_size = 10  # FORZAR 10 URLs por batch (ultra conservador)
         
         total_batches = (total_rows + batch_size - 1) // batch_size
         
@@ -241,9 +241,12 @@ class URLCategorizer:
                 except Exception as e:
                     raise Exception(f"Error: {str(e)}")
             
-            # Pausa mínima entre batches (solo para Groq)
-            if batch_idx + batch_size < total_rows and provider == 'groq':
-                time.sleep(1.5)
+            # Pausa adaptativa entre batches
+            if batch_idx + batch_size < total_rows:
+                if provider == 'groq':
+                    time.sleep(4)  # 4 segundos entre batches para Groq (permite recuperación de TPM)
+                else:
+                    time.sleep(0.5)
         
         # PASO 3: Broadcast categories de vuelta al dataframe original
         url_to_category = df_unique.set_index('url')['category'].to_dict()
