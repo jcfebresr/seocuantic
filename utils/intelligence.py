@@ -162,18 +162,14 @@ class SEOIntelligence:
         Detect content gaps: keywords competitors have but YOU don't
         
         Returns:
-            DataFrame with: your_domain, your_position, keyword, competitor_domains, 
-                          competitor_count, competitor_traffic, volume, best_competitor_position
+            DataFrame with: keyword, competitor_domains, competitor_count, 
+                          competitor_traffic, volume, best_competitor_position
         """
         if 'is_client' not in df.columns:
             return pd.DataFrame()
         
-        # Get client domain
-        df_client = df[df['is_client'] == True]
-        client_domain = df_client['domain'].iloc[0] if len(df_client) > 0 and 'domain' in df_client.columns else 'Unknown'
-        
         # Get client and competitor keywords
-        client_keywords = set(df_client['keyword'].unique())
+        client_keywords = set(df[df['is_client'] == True]['keyword'].unique())
         df_competitors = df[df['is_client'] == False].copy()
         
         if len(df_competitors) == 0:
@@ -208,12 +204,6 @@ class SEOIntelligence:
             col_names.append('best_competitor_position')
         
         gaps.columns = col_names
-        
-        # Add client domain column at the beginning
-        gaps.insert(0, 'your_domain', client_domain)
-        
-        # Add "Your Position" column (always "Not Ranking" for gaps)
-        gaps.insert(1, 'your_position', 'Not Ranking')
         
         # Sort by volume (high opportunity first)
         if 'volume' in gaps.columns:
