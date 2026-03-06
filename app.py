@@ -143,6 +143,28 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 with tab1:
     st.header("📤 Upload Data" if lang == "en" else "📤 Subir Datos")
     
+    # Tutorial
+    with st.expander("📚 How to use this tab" if lang == "en" else "📚 Cómo usar esta pestaña", expanded=False):
+        st.markdown(f"""
+        {"**Step by step:**" if lang == "en" else "**Paso a paso:**"}
+        
+        1. {"📁 **Export keywords from your SEO tool**" if lang == "en" else "📁 **Exporta keywords de tu herramienta SEO**"}
+           - {"Supported: Ahrefs, SEranking, Semrush, Google Search Console" if lang == "en" else "Soportado: Ahrefs, SEranking, Semrush, Google Search Console"}
+           - {"Format: CSV file" if lang == "en" else "Formato: Archivo CSV"}
+        
+        2. {"🏠 **Upload YOUR project CSV first**" if lang == "en" else "🏠 **Sube el CSV de TU proyecto primero**"}
+           - {"This is your website's keyword data" if lang == "en" else "Son los datos de keywords de tu sitio web"}
+        
+        3. {"🎯 **Upload competitor CSVs (optional)**" if lang == "en" else "🎯 **Sube CSVs de competidores (opcional)**"}
+           - {"Free tier: max 2 competitors" if lang == "en" else "Tier gratuito: máximo 2 competidores"}
+           - {"Premium tier: max 10 competitors" if lang == "en" else "Tier premium: máximo 10 competidores"}
+        
+        4. {"🚀 **Click 'Process All Data'**" if lang == "en" else "🚀 **Click en 'Procesar Todos los Datos'**"}
+           - {"The app will combine and prepare everything" if lang == "en" else "La app combinará y preparará todo"}
+        
+        {"💡 **Tip:** The more competitors you add, the better the gap analysis!" if lang == "en" else "💡 **Tip:** Mientras más competidores agregues, mejor será el análisis de brechas!"}
+        """)
+    
     st.markdown(f"""
     <div class="info-box">
         <strong>{"ℹ️ Upload Strategy:" if lang == "en" else "ℹ️ Estrategia de Subida:"}</strong><br>
@@ -363,6 +385,30 @@ with tab1:
 with tab2:
     st.header("📁 Categorization" if lang == "en" else "📁 Categorización")
     
+    # Tutorial
+    with st.expander("📚 How to use this tab" if lang == "en" else "📚 Cómo usar esta pestaña", expanded=False):
+        st.markdown(f"""
+        {"**What does categorization do?**" if lang == "en" else "**¿Qué hace la categorización?**"}
+        
+        {"Organizes your URLs into content types (Blog, Products, Services, etc.) to understand:" if lang == "en" else "Organiza tus URLs en tipos de contenido (Blog, Productos, Servicios, etc.) para entender:"}
+        - {"Which content types drive the most traffic" if lang == "en" else "Qué tipos de contenido generan más tráfico"}
+        - {"Where your competitors are stronger" if lang == "en" else "Dónde tus competidores son más fuertes"}
+        - {"Content gaps by category" if lang == "en" else "Brechas de contenido por categoría"}
+        
+        {"**Two methods:**" if lang == "en" else "**Dos métodos:**"}
+        
+        {"🆓 **Pattern-Based (Free)**" if lang == "en" else "🆓 **Por Patrones (Gratis)**"}
+        - {"Matches URL paths: `/blog/` → Blog category" if lang == "en" else "Coincide rutas de URL: `/blog/` → Categoría Blog"}
+        - {"Fast and accurate for most sites" if lang == "en" else "Rápido y preciso para la mayoría de sitios"}
+        
+        {"⭐ **AI-Powered (Premium)**" if lang == "en" else "⭐ **Con IA (Premium)**"}
+        - {"Analyzes keyword + URL context semantically" if lang == "en" else "Analiza keyword + contexto de URL semánticamente"}
+        - {"Better for complex sites" if lang == "en" else "Mejor para sitios complejos"}
+        - {"Requires your AI API key" if lang == "en" else "Requiere tu API key de IA"}
+        
+        {"💡 **Tip:** Start with patterns, use AI only if results aren't accurate" if lang == "en" else "💡 **Tip:** Empieza con patrones, usa IA solo si los resultados no son precisos"}
+        """)
+    
     if st.session_state.df_processed is None:
         st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
     else:
@@ -549,6 +595,30 @@ with tab2:
 # TAB 3: Intelligence
 with tab3:
     st.header("🧠 Intelligence Analysis" if lang == "en" else "🧠 Análisis de Inteligencia")
+    
+    # Tutorial
+    with st.expander("📚 How to use this tab" if lang == "en" else "📚 Cómo usar esta pestaña", expanded=False):
+        st.markdown(f"""
+        {"**Premium SEO Intelligence - 3 powerful analyses:**" if lang == "en" else "**Inteligencia SEO Premium - 3 análisis poderosos:**"}
+        
+        {"🔍 **1. Cannibalization Detection**" if lang == "en" else "🔍 **1. Detección de Canibalización**"}
+        - {"Finds when multiple URLs compete for the SAME keyword" if lang == "en" else "Encuentra cuando múltiples URLs compiten por la MISMA keyword"}
+        - {"Shows severity: Critical (Top 3) > Warning (Top 10) > Minor (Page 2+)" if lang == "en" else "Muestra severidad: Crítico (Top 3) > Advertencia (Top 10) > Menor (Página 2+)"}
+        - {"💰 Fix critical issues = immediate traffic gains" if lang == "en" else "💰 Arreglar issues críticos = ganancias inmediatas de tráfico"}
+        
+        {"🎯 **2. Content Gaps**" if lang == "en" else "🎯 **2. Brechas de Contenido**"}
+        - {"Keywords competitors rank for but YOU don't" if lang == "en" else "Keywords por las que competidores rankean pero TÚ no"}
+        - {"= Content opportunities to create" if lang == "en" else "= Oportunidades de contenido para crear"}
+        - {"📈 Focus on high volume gaps first" if lang == "en" else "📈 Enfócate en brechas de alto volumen primero"}
+        
+        {"🗺️ **3. Competitive Zones**" if lang == "en" else "🗺️ **3. Zonas Competitivas**"}
+        - {"🟢 Dominio: Only YOU rank (defend!)" if lang == "en" else "🟢 Dominio: Solo TÚ rankeas (¡defiende!)"}
+        - {"🔴 Guerra: YOU + competitors (fight!)" if lang == "en" else "🔴 Guerra: TÚ + competidores (¡pelea!)"}
+        - {"🟡 QuickWin: Low volume, easy wins" if lang == "en" else "🟡 QuickWin: Bajo volumen, victorias fáciles"}
+        - {"🟣 Gap: High volume, needs investment" if lang == "en" else "🟣 Gap: Alto volumen, requiere inversión"}
+        
+        {"⚡ **Quick Action:** Start with QuickWins for fast results!" if lang == "en" else "⚡ **Acción Rápida:** ¡Empieza con QuickWins para resultados rápidos!"}
+        """)
     
     if st.session_state.tier != 'premium':
         st.warning("⭐ Premium feature. Switch to Premium tier to unlock." if lang == "en" else "⭐ Función Premium. Cambia a tier Premium para desbloquear.")
@@ -807,6 +877,25 @@ with tab3:
 with tab4:
     st.header("📊 Analytics & Visualizations" if lang == "en" else "📊 Análisis y Visualizaciones")
     
+    # Tutorial
+    with st.expander("📚 How to use this tab" if lang == "en" else "📚 Cómo usar esta pestaña", expanded=False):
+        st.markdown(f"""
+        {"**Interactive charts to visualize your SEO data:**" if lang == "en" else "**Gráficos interactivos para visualizar tus datos SEO:**"}
+        
+        {"📊 **Available Charts:**" if lang == "en" else "📊 **Gráficos Disponibles:**"}
+        
+        1. {"🌐 **Traffic by Domain** - Compare your traffic vs competitors" if lang == "en" else "🌐 **Tráfico por Dominio** - Compara tu tráfico vs competidores"}
+        2. {"📊 **Traffic by Category** - Which content types perform best" if lang == "en" else "📊 **Tráfico por Categoría** - Qué tipos de contenido funcionan mejor"}
+        3. {"🔥 **Heatmap** - Domain × Category traffic matrix" if lang == "en" else "🔥 **Mapa de Calor** - Matriz de tráfico Dominio × Categoría"}
+        4. {"🏆 **Top Keywords** - Your highest traffic keywords" if lang == "en" else "🏆 **Top Keywords** - Tus keywords de mayor tráfico"}
+        5. {"📈 **Position Distribution** - How many keywords in Top 3/10/20" if lang == "en" else "📈 **Distribución de Posiciones** - Cuántas keywords en Top 3/10/20"}
+        6. {"📊 **Keyword Count** - Category comparison across domains" if lang == "en" else "📊 **Cantidad de Keywords** - Comparación de categorías entre dominios"}
+        7. {"🎯 **Traffic Funnel** - Traffic drop-off by position" if lang == "en" else "🎯 **Embudo de Tráfico** - Caída de tráfico por posición"}
+        8. {"📈 **Volume vs Traffic** - Keyword efficiency scatter plot" if lang == "en" else "📈 **Volumen vs Tráfico** - Gráfico de dispersión de eficiencia"}
+        
+        {"💡 **Tip:** All charts are interactive - hover for details, click legends to filter!" if lang == "en" else "💡 **Tip:** Todos los gráficos son interactivos - pasa el mouse para detalles, click en leyendas para filtrar!"}
+        """)
+    
     if st.session_state.df_processed is None:
         st.warning("⚠️ Upload and process data first" if lang == "en" else "⚠️ Primero sube y procesa datos")
     else:
@@ -925,6 +1014,27 @@ with tab4:
 with tab5:
     st.header("🤖 AI Analysis Report" if lang == "en" else "🤖 Reporte de Análisis IA")
     
+    # Tutorial
+    with st.expander("📚 How to use this tab" if lang == "en" else "📚 Cómo usar esta pestaña", expanded=False):
+        st.markdown(f"""
+        {"**AI-Powered Strategic Report:**" if lang == "en" else "**Reporte Estratégico con IA:**"}
+        
+        {"This feature analyzes ALL your data and generates:" if lang == "en" else "Esta función analiza TODOS tus datos y genera:"}
+        - {"📊 Executive summary of key findings" if lang == "en" else "📊 Resumen ejecutivo de hallazgos clave"}
+        - {"🚨 Critical issues costing you traffic NOW" if lang == "en" else "🚨 Problemas críticos que te cuestan tráfico AHORA"}
+        - {"⚡ Quick Wins (0-2 weeks, high ROI)" if lang == "en" else "⚡ Quick Wins (0-2 semanas, alto ROI)"}
+        - {"📈 Medium-term strategy (1-3 months)" if lang == "en" else "📈 Estrategia a medio plazo (1-3 meses)"}
+        - {"🎯 Top 5 prioritized actions with expected results" if lang == "en" else "🎯 Top 5 acciones priorizadas con resultados esperados"}
+        
+        {"**Supported AI Providers:**" if lang == "en" else "**Proveedores de IA Soportados:**"}
+        - {"🔮 **Anthropic (Claude)** - Most advanced analysis" if lang == "en" else "🔮 **Anthropic (Claude)** - Análisis más avanzado"}
+        - {"🤖 **OpenAI (GPT-4)** - Excellent strategic insights" if lang == "en" else "🤖 **OpenAI (GPT-4)** - Excelentes insights estratégicos"}
+        - {"⚡ **xAI (Grok)** - FREE tier available!" if lang == "en" else "⚡ **xAI (Grok)** - ¡Tier GRATIS disponible!"}
+        - {"🌟 **Google (Gemini)** - Fast and accurate" if lang == "en" else "🌟 **Google (Gemini)** - Rápido y preciso"}
+        
+        {"💡 **Cost tip:** Grok has a free tier - great for testing!" if lang == "en" else "💡 **Tip de costo:** Grok tiene tier gratuito - ¡excelente para probar!"}
+        """)
+    
     if st.session_state.tier != 'premium':
         st.warning("⭐ Premium feature. Switch to Premium tier to unlock." if lang == "en" else "⭐ Función Premium. Cambia a tier Premium para desbloquear.")
     elif st.session_state.df_processed is None:
@@ -933,24 +1043,37 @@ with tab5:
         st.markdown(f"""
         <div class="info-box">
             <strong>{"🤖 AI-Powered Strategic Analysis" if lang == "en" else "🤖 Análisis Estratégico con IA"}</strong><br>
-            {"Claude AI will analyze all your data and provide:" if lang == "en" else "Claude IA analizará todos tus datos y proporcionará:"}<br>
-            {"• Executive summary of findings" if lang == "en" else "• Resumen ejecutivo de hallazgos"}<br>
-            {"• Prioritized action plan" if lang == "en" else "• Plan de acción priorizado"}<br>
-            {"• Quick wins vs long-term strategies" if lang == "en" else "• Quick wins vs estrategias a largo plazo"}<br>
-            {"• Competitive positioning insights" if lang == "en" else "• Insights de posicionamiento competitivo"}
+            {"The AI will analyze all your data and provide actionable insights" if lang == "en" else "La IA analizará todos tus datos y proporcionará insights accionables"}
         </div>
         """, unsafe_allow_html=True)
         
-        # API Key input
-        api_key = st.text_input(
-            "Anthropic API Key (Claude):" if lang == "en" else "Clave API de Anthropic (Claude):",
-            type="password",
-            key='ai_report_api_key',
-            help="Required for AI analysis" if lang == "en" else "Requerido para análisis IA"
+        # AI Provider selector
+        ai_provider = st.selectbox(
+            "Select AI Provider:" if lang == "en" else "Selecciona Proveedor de IA:",
+            options=['Anthropic (Claude)', 'OpenAI (GPT-4)', 'xAI (Grok)', 'Google (Gemini)'],
+            help="Choose your preferred AI provider" if lang == "en" else "Elige tu proveedor de IA preferido"
         )
         
+        # API Key input
+        api_key = st.text_input(
+            f"API Key for {ai_provider}:" if lang == "en" else f"API Key para {ai_provider}:",
+            type="password",
+            key='ai_report_api_key',
+            help="Your API key (never stored)" if lang == "en" else "Tu API key (nunca se guarda)"
+        )
+        
+        # API Key help links
+        if 'Anthropic' in ai_provider:
+            st.caption("Get your key at: https://console.anthropic.com")
+        elif 'OpenAI' in ai_provider:
+            st.caption("Get your key at: https://platform.openai.com/api-keys")
+        elif 'xAI' in ai_provider:
+            st.caption("🆓 Free tier! Get your key at: https://console.x.ai")
+        elif 'Google' in ai_provider:
+            st.caption("Get your key at: https://makersuite.google.com/app/apikey")
+        
         if not api_key:
-            st.info("💡 Enter your Anthropic API key above to generate the AI report" if lang == "en" else "💡 Ingresa tu API key de Anthropic arriba para generar el reporte IA")
+            st.info("💡 Enter your API key above to generate the AI report" if lang == "en" else "💡 Ingresa tu API key arriba para generar el reporte IA")
         else:
             if st.button("🚀 Generate AI Report" if lang == "en" else "🚀 Generar Reporte IA", type="primary", use_container_width=True):
                 with st.spinner("🤖 AI analyzing all data... This may take 1-2 minutes" if lang == "en" else "🤖 IA analizando todos los datos... Puede tomar 1-2 minutos"):
@@ -1051,34 +1174,63 @@ Provide a comprehensive SEO strategy report in Spanish with:
 - Formato claro con emojis y estructura markdown
 - Incluye números concretos de oportunidad"""
 
-                        # Call Claude API
-                        import anthropic
+                        # Call appropriate AI API
+                        ai_report = None
                         
-                        client = anthropic.Anthropic(api_key=api_key)
+                        if 'Anthropic' in ai_provider:
+                            import anthropic
+                            client = anthropic.Anthropic(api_key=api_key)
+                            message = client.messages.create(
+                                model="claude-sonnet-4-20250514",
+                                max_tokens=4000,
+                                messages=[{"role": "user", "content": prompt}]
+                            )
+                            ai_report = message.content[0].text
                         
-                        message = client.messages.create(
-                            model="claude-sonnet-4-20250514",
-                            max_tokens=4000,
-                            messages=[
-                                {"role": "user", "content": prompt}
-                            ]
-                        )
+                        elif 'OpenAI' in ai_provider:
+                            import openai
+                            client = openai.OpenAI(api_key=api_key)
+                            response = client.chat.completions.create(
+                                model="gpt-4o",
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=4000
+                            )
+                            ai_report = response.choices[0].message.content
                         
-                        ai_report = message.content[0].text
+                        elif 'xAI' in ai_provider:
+                            import openai
+                            client = openai.OpenAI(
+                                api_key=api_key,
+                                base_url="https://api.x.ai/v1"
+                            )
+                            response = client.chat.completions.create(
+                                model="grok-beta",
+                                messages=[{"role": "user", "content": prompt}],
+                                max_tokens=4000
+                            )
+                            ai_report = response.choices[0].message.content
                         
-                        # Display report
-                        st.markdown("---")
-                        st.markdown("## 📋 AI Strategic Report" if lang == "en" else "## 📋 Reporte Estratégico IA")
-                        st.markdown(ai_report)
+                        elif 'Google' in ai_provider:
+                            import google.generativeai as genai
+                            genai.configure(api_key=api_key)
+                            model = genai.GenerativeModel('gemini-1.5-pro')
+                            response = model.generate_content(prompt)
+                            ai_report = response.text
                         
-                        # Download button
-                        st.markdown("---")
-                        st.download_button(
-                            label="📥 Download Report" if lang == "en" else "📥 Descargar Reporte",
-                            data=ai_report,
-                            file_name=f"ai_seo_report_{client_domain}.md",
-                            mime="text/markdown"
-                        )
+                        if ai_report:
+                            # Display report
+                            st.markdown("---")
+                            st.markdown("## 📋 AI Strategic Report" if lang == "en" else "## 📋 Reporte Estratégico IA")
+                            st.markdown(ai_report)
+                            
+                            # Download button
+                            st.markdown("---")
+                            st.download_button(
+                                label="📥 Download Report" if lang == "en" else "📥 Descargar Reporte",
+                                data=ai_report,
+                                file_name=f"ai_seo_report_{client_domain}.md",
+                                mime="text/markdown"
+                            )
                         
                     except Exception as e:
                         st.error(f"❌ Error generating AI report: {str(e)}" if lang == "en" else f"❌ Error generando reporte IA: {str(e)}")
