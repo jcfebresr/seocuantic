@@ -129,10 +129,11 @@ st.title("🔮 SEOcuantic Keyword Intelligence")
 st.markdown("**v0.5.0** - AI-Powered SEO Analysis" if lang == "en" else "**v0.5.0** - Análisis SEO con IA")
 
 # Tabs
-tab1, tab2, tab3 = st.tabs([
+tab1, tab2, tab3, tab4 = st.tabs([
     "📤 Upload Data" if lang == "en" else "📤 Subir Datos",
     "📁 Categorization" if lang == "en" else "📁 Categorización",
-    "🧠 Intelligence" if lang == "en" else "🧠 Inteligencia"
+    "🧠 Intelligence" if lang == "en" else "🧠 Inteligencia",
+    "📊 Analytics" if lang == "en" else "📊 Análisis"
 ])
 
 # TAB 1: Upload CSV
@@ -793,6 +794,63 @@ with tab3:
                         )
                     else:
                         st.info("No keywords in this zone" if lang == "en" else "No hay keywords en esta zona")
+
+# TAB 4: Analytics & Visualizations
+with tab4:
+    st.header("📊 Analytics & Visualizations" if lang == "en" else "📊 Análisis y Visualizaciones")
+    
+    if st.session_state.df_processed is None:
+        st.warning("⚠️ Upload and process data first (Tab 1)" if lang == "en" else "⚠️ Primero sube y procesa datos (Tab 1)")
+    else:
+        from utils.visualizations import SEOVisualizations
+        
+        df = st.session_state.df_processed
+        
+        # Chart 1: Traffic by Domain
+        st.subheader("🌐 Traffic by Domain" if lang == "en" else "🌐 Tráfico por Dominio")
+        fig_domain = SEOVisualizations.traffic_by_domain(df)
+        if fig_domain:
+            st.plotly_chart(fig_domain, use_container_width=True)
+        else:
+            st.info("No traffic data available" if lang == "en" else "No hay datos de tráfico disponibles")
+        
+        st.markdown("---")
+        
+        # Chart 2: Traffic by Category (if categorized)
+        if 'category' in df.columns:
+            st.subheader("📁 Traffic by Category" if lang == "en" else "📁 Tráfico por Categoría")
+            fig_category = SEOVisualizations.traffic_by_category(df)
+            if fig_category:
+                st.plotly_chart(fig_category, use_container_width=True)
+            
+            st.markdown("---")
+            
+            # Chart 3: Domain vs Category Heatmap
+            st.subheader("🔥 Domain vs Category Heatmap" if lang == "en" else "🔥 Mapa de Calor: Dominio vs Categoría")
+            fig_heatmap = SEOVisualizations.domain_category_heatmap(df)
+            if fig_heatmap:
+                st.plotly_chart(fig_heatmap, use_container_width=True)
+            
+            st.markdown("---")
+        
+        # Chart 4: Top Keywords
+        st.subheader("🏆 Top Keywords by Traffic" if lang == "en" else "🏆 Top Keywords por Tráfico")
+        top_n = st.slider("Number of keywords to show" if lang == "en" else "Número de keywords a mostrar", 10, 50, 20)
+        fig_top = SEOVisualizations.top_keywords_chart(df, top_n)
+        if fig_top:
+            st.plotly_chart(fig_top, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Chart 5: Position Distribution
+        if 'position' in df.columns:
+            st.subheader("📍 Position Distribution" if lang == "en" else "📍 Distribución de Posiciones")
+            fig_positions = SEOVisualizations.position_distribution(df)
+            if fig_positions:
+                st.plotly_chart(fig_positions, use_container_width=True)
+            else:
+                st.info("No position data available" if lang == "en" else "No hay datos de posición disponibles")
+
                     
                     st.markdown("---")
                     
